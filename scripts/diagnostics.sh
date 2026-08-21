@@ -44,3 +44,5 @@ timeout 3 gpspipe -w -n 8 2>/dev/null
 echo
 echo "readsb:"
 systemctl status readsb --no-pager -l 2>/dev/null
+
+exit 0

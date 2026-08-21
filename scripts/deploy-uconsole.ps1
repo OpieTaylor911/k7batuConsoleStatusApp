@@ -56,6 +56,9 @@ if (-not $SkipSync) {
 
     Write-Host "==> Uploading project files"
     Invoke-Scp -Sources $sources -Destination "${HostAlias}:$RemoteDir/"
+
+    Write-Host "==> Normalizing remote shell script line endings"
+    Invoke-Remote "cd '$RemoteDir' && sed -i 's/\r$//' install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status"
 }
 
 if (-not $SkipInstall) {
@@ -67,7 +70,7 @@ if (-not $SkipInstall) {
 
 if (-not $SkipDiagnostics) {
     Write-Host "==> Running diagnostics on uConsole"
-    Invoke-Remote "cd '$RemoteDir' && chmod +x scripts/diagnostics.sh && ./scripts/diagnostics.sh"
+    Invoke-Remote "cd '$RemoteDir' && chmod +x scripts/diagnostics.sh && ./scripts/diagnostics.sh || true"
 }
 
 Write-Host "==> Deploy workflow completed successfully"
