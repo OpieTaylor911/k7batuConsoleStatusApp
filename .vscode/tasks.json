@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "uConsole: Deploy + Install + Diagnostics",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/deploy-uconsole.ps1"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "uConsole: Deploy + Install",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/deploy-uconsole.ps1",
+        "-SkipDiagnostics"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "uConsole: Diagnostics Only",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/deploy-uconsole.ps1",
+        "-SkipSync",
+        "-SkipInstall"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

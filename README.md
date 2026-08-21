@@ -153,6 +153,13 @@ sudo apt install navit wireshark kismet gqrx-sdr
 
 Other tools such as SDR++ and PyGPSClient may come from HackerGadgets packages or other installation sources.
 
+## Development pipeline notes
+
+For contributor-facing workflow notes, see `dev_readme.template.md`.
+
+For machine-local operational notes, use `dev_readme.md`.
+That file is intentionally git-ignored and is not meant to be committed.
+
 ## Security
 
 AIO power controls run through the locally installed `aiov2_ctl`. The app does not provide network authentication, remote command execution or an HTTP service.
