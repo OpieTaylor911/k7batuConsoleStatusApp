@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 - 2026-08-21
+
+- Added a settings dialog to choose which app GPS Nav launches.
+- Persisted GPS Nav launcher selection per user.
+- Added launcher compatibility checks for Pure Maps, Organic Maps, Navit, and PyGPSClient.
+
 ## 1.0.0 - 2026-08-20
 
 Initial public release.

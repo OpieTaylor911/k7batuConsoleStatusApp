@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 K7BAT uConsole Status App
-Version 1.0.0
+Version 1.0.1
 
 GTK3 dashboard for ClockworkPi uConsole systems, especially Raspberry Pi CM4/CM5
 systems equipped with HackerGadgets AIO V2 and AC1200 hardware.
@@ -19,11 +19,20 @@ import re
 import shutil
 import subprocess
 import threading
+from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 REFRESH_SECONDS = 4
+CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
+
+GPS_NAV_OPTIONS = [
+    {"id": "navit", "label": "Navit", "commands": ["navit"]},
+    {"id": "puremaps", "label": "Pure Maps", "commands": ["pure-maps", "puremaps"]},
+    {"id": "organicmaps", "label": "Organic Maps", "commands": ["organicmaps", "omaps", "OMaps"]},
+    {"id": "pygpsclient", "label": "PyGPSClient", "commands": ["pygpsclient"]},
+]
 
 def run(cmd, timeout=2):
     try:
@@ -44,6 +53,43 @@ def run_rc(cmd, timeout=6):
         return p.returncode, p.stdout.strip()
     except Exception as e:
         return 1, str(e)
+
+def load_settings():
+    default = {"gps_nav_app": "navit"}
+    try:
+        if not CONFIG_PATH.exists():
+            return default
+        data = json.loads(CONFIG_PATH.read_text())
+        if not isinstance(data, dict):
+            return default
+        return {**default, **data}
+    except Exception:
+        return default
+
+def save_settings(settings):
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(json.dumps(settings, indent=2) + "\n")
+    except Exception:
+        pass
+
+def run_stdout(cmd, timeout=3):
+    try:
+        p = subprocess.run(
+            cmd, shell=True, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=timeout
+        )
+        return p.stdout.strip()
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout
+        if out is None:
+            return ""
+        if isinstance(out, bytes):
+            return out.decode(errors="ignore").strip()
+        return str(out).strip()
+    except Exception:
+        return ""
 
 def human_gib(n):
     try:
@@ -160,7 +206,7 @@ def gps_data():
     if service_state("gpsd") != "RUNNING" and run("systemctl is-active gpsd.socket") != "active":
         return result
 
-    raw = run("timeout 2 gpspipe -w -n 12", timeout=3)
+    raw = run_stdout("gpspipe -w -n 12", timeout=3)
     tpv, dev = {}, None
     sats = None
     for line in raw.splitlines():
@@ -215,6 +261,12 @@ def parse_aio_states():
 def command_exists(cmd):
     return bool(shutil.which(cmd))
 
+def resolve_first_command(candidates):
+    for cmd in candidates:
+        if command_exists(cmd):
+            return cmd
+    return None
+
 def launch(command):
     try:
         subprocess.Popen(
@@ -225,17 +277,91 @@ def launch(command):
     except Exception:
         pass
 
+def launch_with_status(app, name, command):
+    app.status.set_text(f"Launching {name}…")
+    try:
+        p = subprocess.Popen(
+            ["/bin/sh", "-lc", command],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        def watcher():
+            # If a GUI app dies immediately, report it instead of implying success.
+            try:
+                p.wait(timeout=2.5)
+                if name == "GPS Nav":
+                    GLib.idle_add(app.status.set_text, "GPS Nav exited. Navit needs a mapset configured.")
+                else:
+                    GLib.idle_add(app.status.set_text, f"{name} exited immediately")
+            except subprocess.TimeoutExpired:
+                GLib.idle_add(app.status.set_text, f"{name} launched")
+        threading.Thread(target=watcher, daemon=True).start()
+    except Exception as e:
+        app.status.set_text(f"{name}: launch failed — {e}")
+
 CSS = b"""
-window { background: #15171b; color: #f2f2f2; }
-frame { border-color: #3a3d44; }
-label { color: #f2f2f2; }
-button { min-height: 30px; }
-.title { font-size: 22px; font-weight: 700; }
-.metric { font-size: 16px; font-weight: 700; }
-.subtle { color: #b8bcc5; }
-.status-on { color: #32d15d; font-weight: 700; }
-.status-off { color: #8b909a; }
-.status-unknown { color: #e4a72b; font-weight: 700; }
+window {
+    background: #101318;
+    color: #eaf0f7;
+}
+
+frame {
+    border-color: #2d3744;
+    border-width: 1px;
+}
+
+label {
+    color: #eaf0f7;
+}
+
+button {
+    min-height: 32px;
+    border-radius: 8px;
+}
+
+.title {
+    font-size: 24px;
+    font-weight: 800;
+}
+
+.metric {
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.subtle {
+    color: #9aa6b5;
+}
+
+.status-on { color: #39d98a; font-weight: 700; }
+.status-off { color: #7c8797; }
+.status-unknown { color: #f4b740; font-weight: 700; }
+
+.chip {
+    border-radius: 12px;
+    padding: 3px 8px;
+    font-weight: 700;
+}
+
+.chip-good {
+    background: #143f2c;
+    color: #86e4b6;
+}
+
+.chip-warn {
+    background: #4a3a12;
+    color: #ffd27b;
+}
+
+.chip-bad {
+    background: #4a1f1f;
+    color: #ff9a9a;
+}
+
+.chip-muted {
+    background: #26303b;
+    color: #b9c3d1;
+}
 """
 
 class App(Gtk.Window):
@@ -247,6 +373,10 @@ class App(Gtk.Window):
         self.labels = {}
         self.radio_dots = {}
         self.radio_text = {}
+        self.chips = {}
+        self.settings = load_settings()
+        self.launch_actions = {}
+        self.launch_buttons = {}
 
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
@@ -255,18 +385,40 @@ class App(Gtk.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(outer)
 
         title = Gtk.Label(label=APP_NAME)
         title.get_style_context().add_class("title")
         outer.pack_start(title, False, False, 0)
 
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        outer.pack_start(header, False, False, 0)
+
         subtitle = Gtk.Label(label=f"v{APP_VERSION} • K7BAT")
         subtitle.get_style_context().add_class("subtle")
-        outer.pack_start(subtitle, False, False, 0)
+        subtitle.set_xalign(0)
+        header.pack_start(subtitle, True, True, 0)
 
-        metrics = Gtk.Grid(column_spacing=18, row_spacing=5)
+        settings_btn = Gtk.Button(label="Settings")
+        settings_btn.connect("clicked", self.open_settings_dialog)
+        header.pack_end(settings_btn, False, False, 0)
+
+        chips_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        outer.pack_start(chips_box, False, False, 0)
+        for key, text in [
+            ("chip_fix", "GPS: --"),
+            ("chip_wifi", "Wi-Fi: --"),
+            ("chip_gpsd", "gpsd: --"),
+            ("chip_readsb", "readsb: --"),
+        ]:
+            chip = Gtk.Label(label=text)
+            chip.get_style_context().add_class("chip")
+            chip.get_style_context().add_class("chip-muted")
+            chips_box.pack_start(chip, False, False, 0)
+            self.chips[key] = chip
+
+        metrics = Gtk.Grid(column_spacing=22, row_spacing=7)
         outer.pack_start(metrics, False, False, 2)
         for i, (key, label) in enumerate([
             ("cpu","CPU"), ("ram","RAM"), ("disk","NVMe"), ("battery","Battery")
@@ -281,7 +433,7 @@ class App(Gtk.Window):
             metrics.attach(row, i % 2, i // 2, 1, 1)
             self.labels[key] = v
 
-        panels = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        panels = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         outer.pack_start(panels, True, True, 2)
 
         self.gps_box = self.make_frame(panels, "GPS / Services")
@@ -327,10 +479,10 @@ class App(Gtk.Window):
             lab.get_style_context().add_class("subtle")
             radio_box.pack_start(lab, True, True, 0)
 
-        apps = Gtk.Box(spacing=4)
+        apps = Gtk.Box(spacing=6)
         outer.pack_start(apps, False, False, 0)
         buttons = [
-            ("GPS Nav","navit","navit"),
+            ("GPS Nav",None,None),
             ("PyGPS","pygpsclient","pygpsclient"),
             ("SDR++","sdrpp","sdrpp"),
             ("GQRX","gqrx","gqrx"),
@@ -341,8 +493,20 @@ class App(Gtk.Window):
         ]
         for name, cmd, check in buttons:
             b = Gtk.Button(label=name)
-            b.set_sensitive(command_exists(check))
-            b.connect("clicked", lambda _b, c=cmd: launch(c))
+            if name == "GPS Nav":
+                self.launch_buttons[name] = b
+                b.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
+                apps.pack_start(b, True, True, 0)
+                continue
+
+            available = command_exists(check)
+            b.set_sensitive(available)
+            self.launch_actions[name] = cmd
+            if available:
+                b.set_tooltip_text(f"Launch {name}")
+            else:
+                b.set_tooltip_text(f"Missing dependency: {check}")
+            b.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
             apps.pack_start(b, True, True, 0)
 
         self.status = Gtk.Label(label="Ready")
@@ -350,9 +514,100 @@ class App(Gtk.Window):
         self.status.get_style_context().add_class("subtle")
         outer.pack_start(self.status, False, False, 0)
 
+        self.last_update = Gtk.Label(label="Updated: --")
+        self.last_update.set_xalign(0)
+        self.last_update.get_style_context().add_class("subtle")
+        outer.pack_start(self.last_update, False, False, 0)
+
         self.show_all()
+        self.refresh_gps_nav_button()
         self.refresh_async()
         GLib.timeout_add_seconds(REFRESH_SECONDS, self.refresh_async)
+
+    def selected_gps_option(self):
+        selected = self.settings.get("gps_nav_app", "navit")
+        for opt in GPS_NAV_OPTIONS:
+            if opt["id"] == selected:
+                return opt
+        return GPS_NAV_OPTIONS[0]
+
+    def gps_option_by_id(self, option_id):
+        for opt in GPS_NAV_OPTIONS:
+            if opt["id"] == option_id:
+                return opt
+        return None
+
+    def gps_option_status(self, option):
+        cmd = resolve_first_command(option["commands"])
+        return {
+            "available": bool(cmd),
+            "command": cmd,
+            "label": option["label"],
+            "check": option["commands"][0],
+        }
+
+    def refresh_gps_nav_button(self):
+        b = self.launch_buttons.get("GPS Nav")
+        if not b:
+            return
+        option = self.selected_gps_option()
+        status = self.gps_option_status(option)
+        b.set_label(f"GPS Nav ({option['label']})")
+        if status["available"]:
+            b.set_sensitive(True)
+            b.set_tooltip_text(f"Launch {option['label']}")
+            self.launch_actions["GPS Nav"] = status["command"]
+        else:
+            b.set_sensitive(False)
+            b.set_tooltip_text(f"Selected app is not installed: {status['check']}")
+            self.launch_actions["GPS Nav"] = None
+
+    def on_launch_clicked(self, name):
+        cmd = self.launch_actions.get(name)
+        if not cmd:
+            self.status.set_text(f"{name}: no launch command configured")
+            return
+        launch_with_status(self, name, cmd)
+
+    def open_settings_dialog(self, _button):
+        dialog = Gtk.Dialog(
+            title="Settings",
+            transient_for=self,
+            flags=0,
+        )
+        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(8)
+
+        info = Gtk.Label(label="Choose which app the GPS Nav button should launch.")
+        info.set_xalign(0)
+        info.get_style_context().add_class("subtle")
+        content.pack_start(info, False, False, 0)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        content.pack_start(row, False, False, 0)
+        row.pack_start(Gtk.Label(label="GPS Nav app:"), False, False, 0)
+
+        combo = Gtk.ComboBoxText()
+        current_id = self.selected_gps_option()["id"]
+        for opt in GPS_NAV_OPTIONS:
+            status = self.gps_option_status(opt)
+            suffix = "installed" if status["available"] else f"missing ({status['check']})"
+            combo.append(opt["id"], f"{opt['label']} [{suffix}]")
+        combo.set_active_id(current_id)
+        row.pack_start(combo, True, True, 0)
+
+        dialog.show_all()
+        resp = dialog.run()
+        if resp == Gtk.ResponseType.OK:
+            selected = combo.get_active_id() or "navit"
+            self.settings["gps_nav_app"] = selected
+            save_settings(self.settings)
+            self.refresh_gps_nav_button()
+            opt = self.gps_option_by_id(selected)
+            if opt:
+                self.status.set_text(f"Saved: GPS Nav set to {opt['label']}")
+        dialog.destroy()
 
     def make_frame(self, parent, title):
         f = Gtk.Frame(label=title)
@@ -367,6 +622,7 @@ class App(Gtk.Window):
         name = Gtk.Label(label=title)
         name.set_size_request(115, -1)
         name.set_xalign(0)
+        name.get_style_context().add_class("subtle")
         val = Gtk.Label(label="—")
         val.set_xalign(0)
         val.set_line_wrap(True)
@@ -374,6 +630,21 @@ class App(Gtk.Window):
         row.pack_start(val, True, True, 0)
         parent.pack_start(row, False, False, 0)
         self.labels[key] = val
+
+    def set_chip(self, key, text, level):
+        chip = self.chips.get(key)
+        if not chip:
+            return
+        chip.set_text(text)
+        ctx = chip.get_style_context()
+        for cls in ("chip-good", "chip-warn", "chip-bad", "chip-muted"):
+            ctx.remove_class(cls)
+        ctx.add_class({
+            "good": "chip-good",
+            "warn": "chip-warn",
+            "bad": "chip-bad",
+            "muted": "chip-muted",
+        }.get(level, "chip-muted"))
 
     def set_radio_visual(self, dev, state):
         dot = self.radio_dots.get(dev)
@@ -422,10 +693,18 @@ class App(Gtk.Window):
             return True
         self._refreshing = True
         def worker():
-            data = self.collect()
-            GLib.idle_add(self.apply_data, data)
+            try:
+                data = self.collect()
+                GLib.idle_add(self.apply_data, data)
+            except Exception as e:
+                GLib.idle_add(self.on_refresh_error, str(e))
         threading.Thread(target=worker, daemon=True).start()
         return True
+
+    def on_refresh_error(self, err):
+        self._refreshing = False
+        self.status.set_text(f"Refresh error: {err[:100]}")
+        return False
 
     def apply_data(self, d):
         self._refreshing = False
@@ -453,6 +732,21 @@ class App(Gtk.Window):
                 self.labels[key].set_text("—")
         for dev, state in d["aio"].items():
             self.set_radio_visual(dev, state)
+
+        fix_text = g["fix"]
+        if "3D" in fix_text or "2D" in fix_text:
+            self.set_chip("chip_fix", f"GPS: {fix_text}", "good")
+        elif "NO FIX" in fix_text:
+            self.set_chip("chip_fix", f"GPS: {fix_text}", "warn")
+        else:
+            self.set_chip("chip_fix", f"GPS: {fix_text}", "muted")
+
+        wifi_ok = len(d["wifi"]) > 0
+        self.set_chip("chip_wifi", f"Wi-Fi: {'OK' if wifi_ok else 'NONE'}", "good" if wifi_ok else "bad")
+        self.set_chip("chip_gpsd", f"gpsd: {d['gpsd']}", "good" if d["gpsd"] == "RUNNING" else "warn")
+        self.set_chip("chip_readsb", f"readsb: {d['readsb']}", "good" if d["readsb"] == "RUNNING" else "muted")
+
+        self.last_update.set_text("Updated: " + datetime.now().strftime("%H:%M:%S"))
         return False
 
 Gtk.init([])
