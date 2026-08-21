@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=K7BAT uConsole Status App
+Comment=System, GPS, network, Wi-Fi and HackerGadgets AIO V2 dashboard
+Exec=/usr/local/bin/k7bat-uconsole-status
+Icon=k7bat-uconsole-status
+Terminal=false
+Categories=System;Utility;Network;
+StartupNotify=true

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect x="8" y="8" width="240" height="240" rx="42" fill="#161a20"/>
+  <circle cx="128" cy="88" r="46" fill="none" stroke="#39d353" stroke-width="9"/>
+  <path d="M128 43v90M91 91h74" stroke="#39d353" stroke-width="9" stroke-linecap="round"/>
+  <path d="M76 168h104" stroke="#d9dde5" stroke-width="8" stroke-linecap="round"/>
+  <path d="M94 148l-18 20 18 20M162 148l18 20-18 20" fill="none" stroke="#d9dde5" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="128" y="226" text-anchor="middle" font-family="sans-serif" font-size="31" font-weight="700" fill="#ffffff">K7BAT</text>
+</svg>
