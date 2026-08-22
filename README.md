@@ -1,65 +1,84 @@
-# K7BAT uConsole Status App v1.1.8
+# K7BAT uConsole Status App
 
 ![K7BAT uConsole Status App interface](GitDocumentation/statusapp_1_1_8.png)
 
-A GTK/Wayland desktop status and launcher application for the **ClockworkPi uConsole**, created by **K7BAT**.
+The K7BAT uConsole Status App is a purpose-built dashboard for the ClockworkPi uConsole.
+It gives builders and field operators one clean place to monitor system health, manage radio hardware, and launch tooling fast from a small screen.
 
-It is designed primarily for Raspberry Pi Compute Module 4/5 uConsole builds and works especially well with the **HackerGadgets AIO V2** and **HackerGadgets AC1200 (MediaTek MT7921U)**.
+## At a glance
 
-## Features
+- Current release: **v1.1.8** (2026-08-22)
+- Platform focus: **ClockworkPi uConsole** on **Debian 13 (Trixie)**
+- Compute modules: **CM4 / CM5**
+- Hardware integration: **HackerGadgets AIO V2** and **HackerGadgets AC1200 (MediaTek MT7921U)**
 
-- Native GTK3 desktop application for Wayland/labwc and X11-capable Debian desktops.
-- Compact two-column UI tuned for the uConsole screen, including default maximized launch.
-- CPU temperature, RAM, NVMe/root filesystem space and battery status when exposed by the kernel.
-- GPS status through `gpsd`: fix type, satellites, device, position, speed and heading.
-- Dynamic Wi-Fi interface detection.
-- Friendly recognition for common uConsole adapters including:
-  - HackerGadgets AC1200 / MediaTek `mt7921u`
-  - TP-Link AC600 / Realtek 8821AU-family adapters
-  - CM4/CM5 onboard Wi-Fi when detectable
-- Wi-Fi mode, SSID, channel and signal strength.
-- Ethernet, Bluetooth, IP, `gpsd` and `readsb` status.
-- HackerGadgets AIO V2 radio controls through `aiov2_ctl`.
-- Radio state indicators:
-  - **Green** = ON
-  - **Gray** = OFF
-  - **Amber** = state could not be determined
-- Optional launcher buttons for Navit, Pure Maps, Organic Maps, OSM Scout, PyGPSClient, SDR++, GQRX, ADS-B/tar1090, Wireshark, Kismet and AIO Control.
-- Profile presets (Mobile, Base, Emergency, Custom) with persistence and hotkeys.
-- Snapshot Manager for named snapshots, load/delete, quick tags, and restore-latest-auto workflows.
-- Auto snapshot retention policy (keeps recent auto snapshots per context key).
-- Smart alert engine with configurable CPU/RAM/disk/battery/GPS/Wi-Fi thresholds.
-- Service Health Center with status and restart controls for core services.
-- Custom plugin launcher support with JSON editor in Settings.
-- Bundled starter plugin pack that auto-loads when user `plugins.json` does not exist.
-- SVG icon framework for section labels and action buttons.
-- Flatpak-aware GPS app discovery with helper support for command and app ID detection.
-- Start-menu entry and desktop shortcut.
-- Fresh-install and upgrade-safe installer.
-- Uninstaller and diagnostics script.
+See [CHANGELOG.md](CHANGELOG.md) for complete release history.
 
-## Current release
+## Why makers use it
 
-- Latest version: **1.1.8**
-- Release date: **2026-08-22**
-- See full change history in `CHANGELOG.md`.
+- Built for real handheld workflows: key data and controls are visible without tab-hopping.
+- Hardware-aware from day one: AIO V2 and AC1200 workflows are first-class.
+- Fast iteration friendly: plugin launchers and profile presets make custom stacks easy to operate.
+- Defensive by design: optional hardware and tools fail gracefully instead of breaking the UI.
 
-## Supported platform
+## Core capabilities
 
-Recommended:
+### Live telemetry
+
+- CPU temperature, RAM use, storage free space, and battery state.
+- GPS via `gpsd`: fix, satellites, device, position, speed, heading, confidence, and DOP/trend context.
+- Network visibility: Wi-Fi interfaces, SSID/channel/signal, Ethernet, active link, failover, and watchdog state.
+- Service visibility for `gpsd`, `bluetooth`, and `readsb`.
+- Bluetooth controller visibility (`BT Ctrl`, for example `hci0`).
+
+### Hardware control
+
+- HackerGadgets AIO V2 radio power toggles through `aiov2_ctl`.
+- Dot-based state indicators:
+  - Green: ON
+  - Gray: OFF
+  - Amber: Unknown state
+- USB/AC1200-aware dependency gating for Bluetooth and AC1200-related actions.
+
+### Workflow and resilience
+
+- Profile presets: Mobile, Base, Emergency, Custom.
+- Snapshot manager: save/load/delete snapshots, quick tags, auto snapshot retention.
+- Smart alert engine with configurable thresholds for CPU/RAM/disk/battery/GPS/Wi-Fi conditions.
+- Mission recorder for session telemetry capture and post-run summaries.
+- Launcher system with built-ins plus custom plugin buttons.
+
+## Plugin launcher model
+
+- Plugin buttons appear in the right column under `Updated:`.
+- User-defined plugins: `~/.config/k7bat-uconsole-status/plugins.json`.
+- Bundled fallback starter pack: `/opt/k7bat-uconsole-status/plugins.default.json`.
+- In-app JSON editor available in Settings.
+
+Example plugin entry:
+
+```json
+{
+  "id": "rf-scan",
+  "label": "RF Scan",
+  "command": "x-terminal-emulator -e sh -lc 'iw dev; read -r -p \"Press Enter...\" _'",
+  "check": "x-terminal-emulator",
+  "tooltip": "Quick RF/Wi-Fi scan helper"
+}
+```
+
+## Supported environment
+
+Recommended baseline:
 
 - ClockworkPi uConsole
-- Debian 13 "Trixie"
+- Debian 13 (Trixie)
+- labwc/Wayland desktop (X11-capable systems also supported)
 - Raspberry Pi CM4 or CM5
-- labwc/Wayland desktop
-- HackerGadgets AIO V2 optional
-- HackerGadgets AC1200 optional
 
-The application is defensive about missing hardware and optional tools; it can still run without AIO V2, GPS, SDR or extra Wi-Fi adapters.
+Optional hardware and apps are detected dynamically. The dashboard remains usable without AIO V2, GPS, SDR, or secondary adapters.
 
-## Install
-
-Extract the release and run:
+## Installation
 
 ```bash
 cd K7BAT-uConsole-Status-App-v1.1.8
@@ -69,89 +88,75 @@ sudo ./install.sh
 
 The installer:
 
-1. Detects the desktop user instead of assuming a username.
+1. Detects the active desktop user.
 2. Installs required Debian packages.
-3. Installs the application under `/opt/k7bat-uconsole-status`.
-4. Installs `/usr/local/bin/k7bat-uconsole-status`.
-5. Adds the application to the Start/Application menu.
-6. Creates a desktop shortcut for the detected GUI user.
-7. Detects `aiov2_ctl` if present.
-8. Preserves an existing gpsd device configuration.
-9. If gpsd is not configured, attempts a conservative NMEA serial-device detection and configures gpsd only after observing valid NMEA output.
+3. Deploys app files to `/opt/k7bat-uconsole-status`.
+4. Installs launcher command `k7bat-uconsole-status` to `/usr/local/bin`.
+5. Adds Start-menu entry and desktop shortcut.
+6. Detects `aiov2_ctl` when present.
+7. Preserves existing `gpsd` device configuration.
+8. Applies conservative GPS auto-detection only when valid NMEA data is observed.
 
 ## Upgrade
 
-Run the new release's installer again:
+Re-run the installer from a newer release:
 
 ```bash
 sudo ./install.sh
 ```
 
-Application files and launchers are replaced. User/system GPS configuration is preserved unless gpsd has no configured device and a valid NMEA device is positively detected.
+Application files are replaced while preserving safe configuration behavior.
 
-## Run
+## Launch
 
-Launch **K7BAT uConsole Status App** from the desktop or Start menu.
+From desktop menu:
 
-From a graphical terminal:
+- K7BAT uConsole Status App
+
+From terminal:
 
 ```bash
 k7bat-uconsole-status
 ```
 
-## AIO V2 controls
+## Admin and diagnostics
 
-When `aiov2_ctl` is installed, the dashboard exposes:
-
-- GPS ON / OFF
-- SDR ON / OFF
-- LoRa ON / OFF
-- AIO Control GUI
-
-The app invokes `aiov2_ctl` rather than directly manipulating GPIO pins so AIO controller behavior remains owned by the HackerGadgets software.
-
-## GPS
-
-The dashboard consumes GPS data from `gpsd`; it does not directly seize the GPS UART during normal operation.
-
-Check GPS from a terminal with:
+Check GPS feed:
 
 ```bash
 cgps -s
 ```
 
-On some CM5 + AIO V2 systems the GNSS UART is `/dev/ttyAMA0`, but the public installer does **not** blindly assume that.
-
-## Wireless
-
-Inspect all wireless adapters:
+Inspect wireless devices:
 
 ```bash
 iw dev
 nmcli device status
 ```
 
-Inspect a specific adapter driver:
+Inspect adapter driver:
 
 ```bash
 ethtool -i wlan1
 ```
 
-The HackerGadgets AC1200 commonly appears with:
-
-```text
-driver: mt7921u
-```
-
-## Diagnostics
-
-If something does not appear correctly:
+Run diagnostics bundle script:
 
 ```bash
 sudo ./scripts/diagnostics.sh
 ```
 
-When posting support information, review the output first because it may contain local network names or addresses.
+## Optional tools
+
+The dashboard automatically enables launchers when dependencies are available.
+
+Example package installs:
+
+```bash
+sudo apt install navit wireshark kismet gqrx-sdr
+```
+
+Other tools such as SDR++ and PyGPSClient may come from HackerGadgets packages or other sources.
 
 ## Uninstall
 
@@ -159,42 +164,22 @@ When posting support information, review the output first because it may contain
 sudo ./uninstall.sh
 ```
 
-The uninstaller removes K7BAT application files and shortcuts but intentionally does **not** uninstall shared Debian packages or rewrite gpsd configuration.
+This removes app files and shortcuts but intentionally does not remove shared Debian packages or rewrite system GPS configuration.
 
-## Optional tools
+## Security posture
 
-The dashboard automatically enables launch buttons when the corresponding command exists. Examples:
+- AIO actions are delegated to local `aiov2_ctl` tooling.
+- The app does not expose an HTTP API, remote execution endpoint, or authentication surface.
+- Remote administration should be handled through hardened SSH or secured WayVNC setups.
 
-```bash
-sudo apt install navit wireshark kismet gqrx-sdr
-```
+## Builder notes
 
-Other tools such as SDR++ and PyGPSClient may come from HackerGadgets packages or other installation sources.
-
-## Plugin launchers
-
-- Plugin buttons are shown in the right column under `Updated:`.
-- Custom plugin definitions are read from:
-  - `~/.config/k7bat-uconsole-status/plugins.json`
-- If that file does not exist, the app falls back to bundled defaults installed at:
-  - `/opt/k7bat-uconsole-status/plugins.default.json`
-
-## Development pipeline notes
-
-For contributor-facing workflow notes, see `dev_readme.template.md`.
-
-For machine-local operational notes, use `dev_readme.md`.
-That file is intentionally git-ignored and is not meant to be committed.
-
-## Security
-
-AIO power controls run through the locally installed `aiov2_ctl`. The app does not provide network authentication, remote command execution or an HTTP service.
-
-For remote access to the uConsole, use a separately secured VNC/WayVNC or SSH configuration.
+- Contributor template: [dev_readme.template.md](dev_readme.template.md)
+- Local machine notes (git-ignored): `dev_readme.md`
 
 ## License
 
-MIT License. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).
 
 ## Credits
 
