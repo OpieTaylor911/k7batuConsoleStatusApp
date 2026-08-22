@@ -1,4 +1,4 @@
-# K7BAT uConsole Status App v1.0.0
+# K7BAT uConsole Status App v1.1.4
 
 A GTK/Wayland desktop status and launcher application for the **ClockworkPi uConsole**, created by **K7BAT**.
 
@@ -7,6 +7,7 @@ It is designed primarily for Raspberry Pi Compute Module 4/5 uConsole builds and
 ## Features
 
 - Native GTK3 desktop application for Wayland/labwc and X11-capable Debian desktops.
+- Compact two-column UI tuned for the uConsole screen, including default maximized launch.
 - CPU temperature, RAM, NVMe/root filesystem space and battery status when exposed by the kernel.
 - GPS status through `gpsd`: fix type, satellites, device, position, speed and heading.
 - Dynamic Wi-Fi interface detection.
@@ -21,10 +22,24 @@ It is designed primarily for Raspberry Pi Compute Module 4/5 uConsole builds and
   - **Green** = ON
   - **Gray** = OFF
   - **Amber** = state could not be determined
-- Optional launcher buttons for Navit, PyGPSClient, SDR++, GQRX, ADS-B/tar1090, Wireshark, Kismet and AIO Control.
+- Optional launcher buttons for Navit, Pure Maps, Organic Maps, OSM Scout, PyGPSClient, SDR++, GQRX, ADS-B/tar1090, Wireshark, Kismet and AIO Control.
+- Profile presets (Mobile, Base, Emergency, Custom) with persistence and hotkeys.
+- Snapshot Manager for named snapshots, load/delete, quick tags, and restore-latest-auto workflows.
+- Auto snapshot retention policy (keeps recent auto snapshots per context key).
+- Smart alert engine with configurable CPU/RAM/disk/battery/GPS/Wi-Fi thresholds.
+- Service Health Center with status and restart controls for core services.
+- Custom plugin launcher support with JSON editor in Settings.
+- SVG icon framework for section labels and action buttons.
+- Flatpak-aware GPS app discovery with helper support for command and app ID detection.
 - Start-menu entry and desktop shortcut.
 - Fresh-install and upgrade-safe installer.
 - Uninstaller and diagnostics script.
+
+## Current release
+
+- Latest version: **1.1.4**
+- Release date: **2026-08-21**
+- See full change history in `CHANGELOG.md`.
 
 ## Supported platform
 
@@ -44,7 +59,7 @@ The application is defensive about missing hardware and optional tools; it can s
 Extract the release and run:
 
 ```bash
-cd K7BAT-uConsole-Status-App-v1.0.0
+cd K7BAT-uConsole-Status-App-v1.1.4
 chmod +x install.sh uninstall.sh scripts/*.sh
 sudo ./install.sh
 ```
