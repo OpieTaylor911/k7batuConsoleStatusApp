@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.8 - 2026-08-22
+
+- Added USB AIO radio power control and relabeled it as `USB/AC1200` in the HackerGadgets control row.
+- Replaced per-radio ON/OFF buttons with single toggle switches while keeping dot-based state indicators.
+- Moved Bluetooth power control into the HackerGadgets toggle row and removed the separate BT ON action button.
+- Added AC1200 dependency gating: Bluetooth and AC1200-dependent actions are dimmed/blocked when USB/AC1200 power is off, with contextual hover hint text.
+- Restyled service health row (`Svc:`) to compact dot+label indicators for gpsd, bluetooth, and readsb.
+- Added `BT Ctrl` visibility in Network/Wireless to show detected controller identity (for example `hci0`).
+- Moved plugin launcher buttons to the right-side controls area under `Updated:`.
+- Added bundled starter plugin defaults with fallback loading when user `plugins.json` is not present.
+- Hardened service actions to use non-interactive `sudo -n systemctl` flow and installer-managed passwordless policy support.
+
 ## 1.1.7 - 2026-08-21
 
 - Added Tactical Connectivity rows in Network panel: Active Link, Wi-Fi Trend, Failover, and Hotspot Watchdog.

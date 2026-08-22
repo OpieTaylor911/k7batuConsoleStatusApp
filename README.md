@@ -1,4 +1,4 @@
-# K7BAT uConsole Status App v1.1.4
+# K7BAT uConsole Status App v1.1.8
 
 ![K7BAT uConsole Status App interface](statusapp_1_1_4.png)
 
@@ -40,8 +40,8 @@ It is designed primarily for Raspberry Pi Compute Module 4/5 uConsole builds and
 
 ## Current release
 
-- Latest version: **1.1.4**
-- Release date: **2026-08-21**
+- Latest version: **1.1.8**
+- Release date: **2026-08-22**
 - See full change history in `CHANGELOG.md`.
 
 ## Supported platform
@@ -62,7 +62,7 @@ The application is defensive about missing hardware and optional tools; it can s
 Extract the release and run:
 
 ```bash
-cd K7BAT-uConsole-Status-App-v1.1.4
+cd K7BAT-uConsole-Status-App-v1.1.8
 chmod +x install.sh uninstall.sh scripts/*.sh
 sudo ./install.sh
 ```
