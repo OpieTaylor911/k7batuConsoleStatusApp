@@ -1,5 +1,7 @@
 # K7BAT uConsole Status App v1.1.4
 
+![K7BAT uConsole Status App interface](statusapp_1_1_4.png)
+
 A GTK/Wayland desktop status and launcher application for the **ClockworkPi uConsole**, created by **K7BAT**.
 
 It is designed primarily for Raspberry Pi Compute Module 4/5 uConsole builds and works especially well with the **HackerGadgets AIO V2** and **HackerGadgets AC1200 (MediaTek MT7921U)**.
