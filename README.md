@@ -1,6 +1,29 @@
 # K7BAT uConsole Status App
 
+<p align="center">
+  <img src="small_k7bat.png" alt="K7BAT branding" width="320" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/release-v1.1.8-1f8b4c?style=for-the-badge" alt="Release v1.1.8" />
+  <img src="https://img.shields.io/badge/platform-ClockworkPi%20uConsole-22324a?style=for-the-badge" alt="ClockworkPi uConsole" />
+  <img src="https://img.shields.io/badge/os-Debian%2013%20Trixie-8d2a5d?style=for-the-badge" alt="Debian 13 Trixie" />
+  <img src="https://img.shields.io/badge/license-MIT-444?style=for-the-badge" alt="MIT License" />
+</p>
+
 ![K7BAT uConsole Status App interface](GitDocumentation/statusapp_1_1_8.png)
+
+## Visual overview
+
+| Mission dashboard | Compact field layout |
+|---|---|
+| ![Mission dashboard](GitDocumentation/statusapp_1_1_8.png) | ![Compact field layout](screen.png) |
+
+## Architecture and connection diagrams
+
+| Application and device flow | System connections |
+|---|---|
+| ![Application and device flow](GitDocumentation/diagram-export-8-22-2026-1_51_09-PM.png) | ![System connections](GitDocumentation/diagram-export-8-22-2026-1_53_05-PM.png) |
 
 The K7BAT uConsole Status App is a purpose-built dashboard for the ClockworkPi uConsole.
 It gives builders and field operators one clean place to monitor system health, manage radio hardware, and launch tooling fast from a small screen.
@@ -20,6 +43,13 @@ See [CHANGELOG.md](CHANGELOG.md) for complete release history.
 - Hardware-aware from day one: AIO V2 and AC1200 workflows are first-class.
 - Fast iteration friendly: plugin launchers and profile presets make custom stacks easy to operate.
 - Defensive by design: optional hardware and tools fail gracefully instead of breaking the UI.
+
+## Feature highlights
+
+- Real-time field telemetry with low-noise presentation.
+- One-pane control for radios, services, and launcher workflows.
+- Hardware detection and adapter-aware labeling for common uConsole setups.
+- Maker-friendly plugin model for fast extension without touching core app logic.
 
 ## Core capabilities
 
