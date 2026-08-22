@@ -23,12 +23,13 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 REFRESH_SECONDS = 4
 CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
 PLUGINS_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "plugins.json"
 PROFILE_SNAPSHOT_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "profile-snapshot.json"
 PROFILE_SNAPSHOT_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "snapshots"
+MISSION_RECORD_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "missions"
 AUTO_SNAPSHOT_KEEP_PER_TAG = 20
 APP_ICON_DIR = Path(__file__).resolve().parent / "icons"
 
@@ -382,6 +383,11 @@ def prune_auto_snapshots(max_per_key=AUTO_SNAPSHOT_KEEP_PER_TAG):
             continue
         seen[key] = count + 1
     return removed
+
+def mission_profile_hint(profile_id):
+    if profile_id in PROFILE_PRESETS:
+        return profile_id
+    return "custom"
 
 def delete_profile_snapshot(snapshot_path):
     try:
@@ -798,6 +804,11 @@ class App(Gtk.Window):
         self.plugins = load_plugins()
         self.service_labels = {}
         self.icon_cache = {}
+        self.mission_active = False
+        self.mission_fp = None
+        self.mission_file_path = None
+        self.mission_started_at = None
+        self.mission_stats = {}
 
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
@@ -880,6 +891,27 @@ class App(Gtk.Window):
         self.decorate_button(snapshots_btn, "dashboard", "Snapshots")
         snapshots_btn.connect("clicked", self.open_snapshots_dialog)
         snapshot_row.pack_start(snapshots_btn, True, True, 0)
+
+        mission_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        right_controls.pack_start(mission_row, False, False, 0)
+        self.mission_start_btn = Gtk.Button(label="Record")
+        self.decorate_button(self.mission_start_btn, "radar", "Record")
+        self.mission_start_btn.connect("clicked", self.on_start_mission)
+        mission_row.pack_start(self.mission_start_btn, True, True, 0)
+
+        self.mission_stop_btn = Gtk.Button(label="Stop")
+        self.decorate_button(self.mission_stop_btn, "power", "Stop")
+        self.mission_stop_btn.connect("clicked", self.on_stop_mission)
+        self.mission_stop_btn.set_sensitive(False)
+        mission_row.pack_start(self.mission_stop_btn, True, True, 0)
+
+        self.mission_status, mission_status_row = self.make_icon_info_row(
+            right_controls,
+            "Mission: idle",
+            "dashboard",
+            14,
+        )
+        mission_status_row.get_style_context().add_class("subtle")
 
         hotkeys_label, hotkeys_row = self.make_icon_info_row(
             right_controls,
@@ -1505,6 +1537,171 @@ class App(Gtk.Window):
             return
         launch_with_status(self, name, cmd)
 
+    def on_start_mission(self, _button):
+        if self.mission_active:
+            self.status.set_text("Mission recorder is already running")
+            return
+        try:
+            MISSION_RECORD_DIR.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            profile_hint = mission_profile_hint(self.settings.get("profile", "custom"))
+            file_path = MISSION_RECORD_DIR / f"mission-{profile_hint}-{ts}.jsonl"
+            fp = file_path.open("a", encoding="utf-8")
+            self.mission_fp = fp
+            self.mission_file_path = file_path
+            self.mission_started_at = datetime.now()
+            self.mission_active = True
+            self.mission_stats = {
+                "samples": 0,
+                "fix_good": 0,
+                "wifi_up": 0,
+                "cpu_max_c": None,
+                "ram_max_pct": None,
+                "disk_min_free_pct": None,
+                "battery_min_pct": None,
+            }
+            self.mission_start_btn.set_sensitive(False)
+            self.mission_stop_btn.set_sensitive(True)
+            self.mission_status.set_text(f"Mission: recording {file_path.name}")
+            self.status.set_text(f"Mission recorder started: {file_path.name}")
+        except Exception as e:
+            self.mission_active = False
+            self.mission_fp = None
+            self.mission_file_path = None
+            self.mission_started_at = None
+            self.mission_status.set_text("Mission: start failed")
+            self.status.set_text(f"Mission recorder failed to start: {str(e)[:100]}")
+
+    def on_stop_mission(self, _button):
+        if not self.mission_active:
+            self.status.set_text("Mission recorder is not running")
+            return
+        self.stop_mission_recording(reason="stopped")
+
+    def stop_mission_recording(self, reason="stopped"):
+        file_path = self.mission_file_path
+        started_at = self.mission_started_at
+        stats = dict(self.mission_stats or {})
+
+        try:
+            if self.mission_fp is not None:
+                self.mission_fp.flush()
+                self.mission_fp.close()
+        except Exception:
+            pass
+
+        self.mission_active = False
+        self.mission_fp = None
+        self.mission_file_path = None
+        self.mission_started_at = None
+        self.mission_stats = {}
+        self.mission_start_btn.set_sensitive(True)
+        self.mission_stop_btn.set_sensitive(False)
+        self.mission_status.set_text("Mission: idle")
+
+        if not file_path or not started_at:
+            self.status.set_text("Mission recorder stopped")
+            return
+
+        ended_at = datetime.now()
+        samples = int(stats.get("samples", 0) or 0)
+        duration_s = max(1, int((ended_at - started_at).total_seconds()))
+        fix_good = int(stats.get("fix_good", 0) or 0)
+        wifi_up = int(stats.get("wifi_up", 0) or 0)
+
+        summary = {
+            "reason": reason,
+            "started_at": started_at.isoformat(timespec="seconds"),
+            "ended_at": ended_at.isoformat(timespec="seconds"),
+            "duration_seconds": duration_s,
+            "samples": samples,
+            "sample_interval_seconds": REFRESH_SECONDS,
+            "gps_fix_good_rate_pct": round((fix_good / samples) * 100.0, 1) if samples else 0.0,
+            "wifi_up_rate_pct": round((wifi_up / samples) * 100.0, 1) if samples else 0.0,
+            "cpu_max_c": stats.get("cpu_max_c"),
+            "ram_max_pct": stats.get("ram_max_pct"),
+            "disk_min_free_pct": stats.get("disk_min_free_pct"),
+            "battery_min_pct": stats.get("battery_min_pct"),
+            "source_jsonl": str(file_path),
+        }
+
+        summary_path = file_path.with_name(file_path.stem + "-summary.json")
+        try:
+            summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+            self.status.set_text(
+                f"Mission saved: {file_path.name} ({samples} samples, {duration_s}s)"
+            )
+        except Exception as e:
+            self.status.set_text(
+                f"Mission saved but summary write failed: {str(e)[:90]}"
+            )
+
+    def record_mission_sample(self, d):
+        if not self.mission_active or self.mission_fp is None:
+            return
+
+        try:
+            now = datetime.now().isoformat(timespec="seconds")
+            metrics = d.get("metrics", {}) if isinstance(d.get("metrics", {}), dict) else {}
+            gps = d.get("gps", {}) if isinstance(d.get("gps", {}), dict) else {}
+            wifi = d.get("wifi", []) if isinstance(d.get("wifi", []), list) else []
+            sample = {
+                "ts": now,
+                "profile": self.settings.get("profile", "custom"),
+                "cpu": d.get("cpu"),
+                "ram": d.get("ram"),
+                "disk": d.get("disk"),
+                "battery": d.get("battery"),
+                "metrics": metrics,
+                "gps": {
+                    "fix": gps.get("fix"),
+                    "sats": gps.get("sats"),
+                    "pos": gps.get("pos"),
+                    "speed": gps.get("speed"),
+                    "track": gps.get("track"),
+                    "device": gps.get("device"),
+                },
+                "services": d.get("services", {}),
+                "wifi": wifi,
+            }
+            self.mission_fp.write(json.dumps(sample) + "\n")
+
+            stats = self.mission_stats
+            stats["samples"] = int(stats.get("samples", 0) or 0) + 1
+
+            fix_text = str(gps.get("fix", ""))
+            if "2D" in fix_text or "3D" in fix_text:
+                stats["fix_good"] = int(stats.get("fix_good", 0) or 0) + 1
+
+            if len(wifi) > 0:
+                stats["wifi_up"] = int(stats.get("wifi_up", 0) or 0) + 1
+
+            cpu_c = metrics.get("cpu_temp_c")
+            if isinstance(cpu_c, (int, float)):
+                current = stats.get("cpu_max_c")
+                stats["cpu_max_c"] = cpu_c if current is None else max(float(current), float(cpu_c))
+
+            ram_pct = metrics.get("ram_used_pct")
+            if isinstance(ram_pct, (int, float)):
+                current = stats.get("ram_max_pct")
+                stats["ram_max_pct"] = ram_pct if current is None else max(float(current), float(ram_pct))
+
+            disk_free_pct = metrics.get("disk_free_pct")
+            if isinstance(disk_free_pct, (int, float)):
+                current = stats.get("disk_min_free_pct")
+                stats["disk_min_free_pct"] = disk_free_pct if current is None else min(float(current), float(disk_free_pct))
+
+            batt_pct = metrics.get("battery_pct")
+            if isinstance(batt_pct, (int, float)):
+                current = stats.get("battery_min_pct")
+                stats["battery_min_pct"] = batt_pct if current is None else min(float(current), float(batt_pct))
+
+            if stats["samples"] % 10 == 0:
+                self.mission_fp.flush()
+        except Exception as e:
+            self.stop_mission_recording(reason="error")
+            self.status.set_text(f"Mission recorder stopped on write error: {str(e)[:100]}")
+
     def open_settings_dialog(self, _button):
         dialog = Gtk.Dialog(
             title="Settings",
@@ -1989,6 +2186,8 @@ class App(Gtk.Window):
 
         alerts = self.evaluate_alerts(d)
         self.apply_alerts(alerts)
+
+        self.record_mission_sample(d)
 
         self.last_update.set_text("Updated: " + datetime.now().strftime("%H:%M:%S"))
         return False

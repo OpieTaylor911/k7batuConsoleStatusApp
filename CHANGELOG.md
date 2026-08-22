@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.5 - 2026-08-21
+
+- Added Mission Recorder with right-panel Record/Stop controls for session capture.
+- Records periodic telemetry samples (GPS, services, Wi-Fi, and system metrics) to JSONL files.
+- Generates an automatic mission summary JSON on stop, including duration, sample count, GPS fix uptime, Wi-Fi uptime, and metric extremes.
+- Stores mission artifacts under `~/.config/k7bat-uconsole-status/missions`.
+
 ## 1.1.4 - 2026-08-21
 
 - Added quick tag chips in Snapshot Manager to rapidly populate common tags.
