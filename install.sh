@@ -84,6 +84,9 @@ done
 log "Installing application"
 mkdir -p "$PREFIX"
 install -m 0755 "$SCRIPT_DIR/app/k7bat-uconsole-status.py" "$PREFIX/k7bat-uconsole-status.py"
+if [ -f "$SCRIPT_DIR/assets/plugins.default.json" ]; then
+  install -m 0644 "$SCRIPT_DIR/assets/plugins.default.json" "$PREFIX/plugins.default.json"
+fi
 if [ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" ]; then
   install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" "$PREFIX/k7bat-callsign-logo.png"
 fi
@@ -103,6 +106,24 @@ install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.svg" \
 tr -d '\r' < "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
   > /usr/share/applications/k7bat-uconsole-status.desktop
 chmod 0644 /usr/share/applications/k7bat-uconsole-status.desktop
+
+if [[ -n "${GUI_USER:-}" ]]; then
+  log "Configuring passwordless service control for $GUI_USER"
+  SUDOERS_FILE="/etc/sudoers.d/90-k7bat-uconsole-status"
+  TMP_SUDOERS="$(mktemp)"
+  cat >"$TMP_SUDOERS" <<EOF
+Cmnd_Alias K7BAT_STATUS_CMDS = /bin/systemctl, /usr/bin/systemctl
+$GUI_USER ALL=(root) NOPASSWD: K7BAT_STATUS_CMDS
+EOF
+  chmod 0440 "$TMP_SUDOERS"
+  if visudo -cf "$TMP_SUDOERS" >/dev/null 2>&1; then
+    install -m 0440 "$TMP_SUDOERS" "$SUDOERS_FILE"
+    ok "Installed sudoers policy: $SUDOERS_FILE"
+  else
+    warn "sudoers validation failed; skipping passwordless service control setup"
+  fi
+  rm -f "$TMP_SUDOERS"
+fi
 
 gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
 update-desktop-database /usr/share/applications >/dev/null 2>&1 || true

@@ -31,6 +31,7 @@ It is designed primarily for Raspberry Pi Compute Module 4/5 uConsole builds and
 - Smart alert engine with configurable CPU/RAM/disk/battery/GPS/Wi-Fi thresholds.
 - Service Health Center with status and restart controls for core services.
 - Custom plugin launcher support with JSON editor in Settings.
+- Bundled starter plugin pack that auto-loads when user `plugins.json` does not exist.
 - SVG icon framework for section labels and action buttons.
 - Flatpak-aware GPS app discovery with helper support for command and app ID detection.
 - Start-menu entry and desktop shortcut.
@@ -169,6 +170,14 @@ sudo apt install navit wireshark kismet gqrx-sdr
 ```
 
 Other tools such as SDR++ and PyGPSClient may come from HackerGadgets packages or other installation sources.
+
+## Plugin launchers
+
+- Plugin buttons are shown in the right column under `Updated:`.
+- Custom plugin definitions are read from:
+  - `~/.config/k7bat-uconsole-status/plugins.json`
+- If that file does not exist, the app falls back to bundled defaults installed at:
+  - `/opt/k7bat-uconsole-status/plugins.default.json`
 
 ## Development pipeline notes
 

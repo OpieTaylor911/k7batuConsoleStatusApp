@@ -11,7 +11,7 @@ Licensed under the MIT License.
 """
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, GLib, Gdk, GdkPixbuf
+from gi.repository import Gtk, GLib, Gdk, GdkPixbuf, Pango
 
 import json
 import os
@@ -25,8 +25,10 @@ from pathlib import Path
 APP_NAME = "K7BAT uConsole Status App"
 APP_VERSION = "1.1.7"
 REFRESH_SECONDS = 4
+SERVICE_PRIV_HINT = "Enable passwordless service control (sudoers) for bluetooth/readsb."
 CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
 PLUGINS_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "plugins.json"
+DEFAULT_PLUGINS_PATH = Path(__file__).resolve().parent / "plugins.default.json"
 PROFILE_SNAPSHOT_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "profile-snapshot.json"
 PROFILE_SNAPSHOT_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "snapshots"
 MISSION_RECORD_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "missions"
@@ -180,9 +182,10 @@ def save_settings(settings):
 
 def load_plugins():
     try:
-        if not PLUGINS_PATH.exists():
+        source = PLUGINS_PATH if PLUGINS_PATH.exists() else DEFAULT_PLUGINS_PATH
+        if not source.exists():
             return []
-        data = json.loads(PLUGINS_PATH.read_text())
+        data = json.loads(source.read_text())
         if not isinstance(data, list):
             return []
         out = []
@@ -547,6 +550,17 @@ def ethernet():
 def bluetooth():
     return "ON" if service_state("bluetooth") == "RUNNING" else "OFF"
 
+def bluetooth_controller():
+    try:
+        ctrls = sorted(p.name for p in Path("/sys/class/bluetooth").glob("hci*"))
+        if not ctrls:
+            return "none"
+        if len(ctrls) == 1:
+            return ctrls[0]
+        return f"{ctrls[0]} (+{len(ctrls) - 1})"
+    except Exception:
+        return "none"
+
 def format_dop(value):
     if isinstance(value, (int, float)):
         return f"{float(value):.1f}"
@@ -660,7 +674,7 @@ def aio_available():
     return bool(shutil.which("aiov2_ctl"))
 
 def parse_aio_states():
-    states = {"GPS": None, "SDR": None, "LORA": None}
+    states = {"GPS": None, "SDR": None, "LORA": None, "USB": None}
     if not aio_available():
         return states
     output = run("aiov2_ctl --status", 3) or run("aiov2_ctl --power", 3)
@@ -893,13 +907,23 @@ button {
 class App(Gtk.Window):
     def __init__(self):
         super().__init__(title=APP_NAME)
-        self.set_default_size(800, 500)
+        self.set_default_size(780, 500)
         self.set_border_width(6)
         self.connect("destroy", Gtk.main_quit)
         self.connect("key-press-event", self.on_key_press)
         self.labels = {}
         self.radio_dots = {}
         self.radio_text = {}
+        self.radio_switches = {}
+        self._radio_switch_sync = False
+        self.bt_switch = None
+        self.bt_toggle_dot = None
+        self.bt_toggle_label = None
+        self.bt_toggle_group = None
+        self._bt_switch_sync = False
+        self.service_dots = {}
+        self.ac1200_dependent_names = {"Wireshark", "Kismet"}
+        self.ac1200_hint = "Turn on the AC1200 board first (USB/AC1200)."
         self.chips = {}
         self.settings = load_settings()
         self.alert_settings = self.settings.get("alerts", dict(DEFAULT_ALERTS))
@@ -936,14 +960,14 @@ class App(Gtk.Window):
         outer.set_border_width(4)
         self.add(outer)
 
-        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         outer.pack_start(layout, True, True, 0)
 
         main_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         layout.pack_start(main_col, True, True, 0)
 
         right_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        right_controls.set_size_request(270, -1)
+        right_controls.set_size_request(255, -1)
         layout.pack_start(right_controls, False, False, 0)
 
         logo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -959,8 +983,8 @@ class App(Gtk.Window):
             try:
                 pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                     str(logo_path),
-                    width=240,
-                    height=64,
+                    width=220,
+                    height=60,
                     preserve_aspect_ratio=True,
                 )
                 logo = Gtk.Image.new_from_pixbuf(pix)
@@ -1042,11 +1066,18 @@ class App(Gtk.Window):
         service_header_row.pack_start(self.make_icon_label("Svc:", "network", 14), False, False, 0)
 
         for svc in ("gpsd", "bluetooth", "readsb"):
-            stat = Gtk.Label(label=f"{svc}: --")
+            group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+            dot = Gtk.Label(label="●")
+            stat = Gtk.Label(label=svc)
             stat.set_xalign(0)
+            stat.set_ellipsize(Pango.EllipsizeMode.END)
+            stat.set_single_line_mode(True)
             stat.get_style_context().add_class("subtle")
+            self.service_dots[svc] = dot
             self.service_labels[svc] = stat
-            service_header_row.pack_start(stat, False, False, 0)
+            group.pack_start(dot, False, False, 0)
+            group.pack_start(stat, False, False, 0)
+            service_header_row.pack_start(group, False, False, 0)
 
         self.restart_combo = Gtk.ComboBoxText()
         for svc in ("gpsd", "gpsd.socket", "bluetooth", "readsb", "NetworkManager"):
@@ -1062,14 +1093,14 @@ class App(Gtk.Window):
         service_action_row.pack_start(restart_btn, False, False, 0)
         right_controls.pack_start(service_action_row, False, False, 0)
 
-        self.header_plugin_info, plugin_row = self.make_icon_info_row(right_controls, "Plugins: loading", "terminal", 14)
-        plugin_row.get_style_context().add_class("subtle")
-
         self.status, status_row = self.make_icon_info_row(right_controls, "Ready", "radar", 14)
         status_row.get_style_context().add_class("subtle")
 
         self.last_update, update_row = self.make_icon_info_row(right_controls, "Updated: --", "dashboard", 14)
         update_row.get_style_context().add_class("subtle")
+
+        self.header_plugin_info, plugin_row = self.make_icon_info_row(right_controls, "Plugins: loading", "terminal", 14)
+        plugin_row.get_style_context().add_class("subtle")
 
         chips_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         main_col.pack_start(chips_box, False, False, 0)
@@ -1143,6 +1174,7 @@ class App(Gtk.Window):
         self.add_row(self.net_box, "ip", "IP", "network")
         self.add_row(self.net_box, "eth", "Ethernet", "ethernet")
         self.add_row(self.net_box, "bt", "Bluetooth", "bluetooth")
+        self.add_row(self.net_box, "bt_ctrl", "BT Ctrl", "radio-tower")
         self.add_row(self.net_box, "wifi", "Wi-Fi", "wifi")
         self.add_row(self.net_box, "active_link", "Active Link", "network")
         self.add_row(self.net_box, "wifi_trend", "Wi-Fi Trend", "chart-line")
@@ -1157,19 +1189,33 @@ class App(Gtk.Window):
         radio_frame.add(radio_box)
 
         if aio_available():
-            for dev in ("GPS","SDR","LORA"):
+            for dev in ("GPS","SDR","LORA", "USB"):
                 group = Gtk.Box(spacing=5)
                 dot = Gtk.Label(label="●")
-                text = Gtk.Label(label=f"{dev} ?")
+                text = Gtk.Label(label=self.radio_display_name(dev))
+                sw = Gtk.Switch()
+                sw.connect("notify::active", self.on_radio_switch_toggled, dev)
                 self.radio_dots[dev] = dot
                 self.radio_text[dev] = text
+                self.radio_switches[dev] = sw
                 group.pack_start(dot, False, False, 0)
                 group.pack_start(text, False, False, 3)
-                for state in ("on","off"):
-                    b = Gtk.Button(label=state.upper())
-                    b.connect("clicked", lambda _b, d=dev, s=state: self.radio_command(d, s))
-                    group.pack_start(b, False, False, 0)
+                group.pack_start(sw, False, False, 0)
                 radio_box.pack_start(group, True, True, 0)
+
+            bt_group = Gtk.Box(spacing=5)
+            bt_dot = Gtk.Label(label="●")
+            bt_text = Gtk.Label(label="Bluetooth")
+            bt_sw = Gtk.Switch()
+            bt_sw.connect("notify::active", self.on_bluetooth_switch_toggled)
+            bt_group.pack_start(bt_dot, False, False, 0)
+            bt_group.pack_start(bt_text, False, False, 3)
+            bt_group.pack_start(bt_sw, False, False, 0)
+            radio_box.pack_start(bt_group, True, True, 0)
+            self.bt_switch = bt_sw
+            self.bt_toggle_dot = bt_dot
+            self.bt_toggle_label = bt_text
+            self.bt_toggle_group = bt_group
         else:
             lab = Gtk.Label(label="aiov2_ctl not detected — radio controls unavailable")
             lab.get_style_context().add_class("subtle")
@@ -1273,11 +1319,11 @@ class App(Gtk.Window):
             apps.add(b)
 
         self.plugin_box = Gtk.FlowBox()
-        self.plugin_box.set_max_children_per_line(6)
+        self.plugin_box.set_max_children_per_line(1)
         self.plugin_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.plugin_box.set_column_spacing(6)
-        self.plugin_box.set_row_spacing(6)
-        main_col.pack_start(self.plugin_box, False, False, 0)
+        self.plugin_box.set_column_spacing(4)
+        self.plugin_box.set_row_spacing(4)
+        right_controls.pack_start(self.plugin_box, False, False, 0)
         self.refresh_plugin_buttons()
 
         self.show_all()
@@ -1657,13 +1703,11 @@ class App(Gtk.Window):
         self.status.set_text(f"Restarting {service}…")
 
         def worker():
-            rc, out = run_rc(f"sudo -n systemctl restart {service}", 12)
-            if rc != 0:
-                rc, out = run_rc(f"systemctl restart {service}", 12)
+            rc, out = self.run_systemctl_noninteractive("restart", service, 12)
             if rc == 0:
                 msg = f"{service} restart requested"
-            elif "password" in out.lower() or "authentication" in out.lower():
-                msg = f"{service} restart needs sudo rights"
+            elif self.is_sudo_auth_error(out):
+                msg = f"{service} restart blocked: {SERVICE_PRIV_HINT}"
             else:
                 tail = out.splitlines()[-1][:90] if out else "unknown error"
                 msg = f"{service} restart failed: {tail}"
@@ -1679,11 +1723,70 @@ class App(Gtk.Window):
             return
         self.restart_service(service)
 
+    def on_bluetooth_switch_toggled(self, switch, _param):
+        if self._bt_switch_sync:
+            return
+        if not self.ac1200_power_on():
+            self.status.set_text(self.ac1200_hint)
+            self._bt_switch_sync = True
+            switch.set_active(False)
+            self._bt_switch_sync = False
+            return
+
+        action = "start" if switch.get_active() else "stop"
+        self.status.set_text(f"Bluetooth: requesting {action}…")
+
+        def worker():
+            rc, out = self.run_systemctl_noninteractive(action, "bluetooth", 12)
+            if rc == 0:
+                if action == "start":
+                    show = run_stdout("bluetoothctl show 2>/dev/null", timeout=4)
+                    if "No default controller available" in show or not show.strip():
+                        msg = "bluetooth started, but no controller detected"
+                    else:
+                        msg = "bluetooth start requested"
+                else:
+                    msg = "bluetooth stop requested"
+            elif self.is_sudo_auth_error(out):
+                msg = f"bluetooth {action} blocked: {SERVICE_PRIV_HINT}"
+            else:
+                tail = out.splitlines()[-1][:90] if out else "unknown error"
+                msg = f"bluetooth {action} failed: {tail}"
+            GLib.idle_add(self.status.set_text, msg)
+            GLib.timeout_add_seconds(1, self.refresh_async)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def on_launch_clicked(self, name):
+        if name in self.ac1200_dependent_names and not self.ac1200_power_on():
+            self.status.set_text(f"{name}: {self.ac1200_hint}")
+            return
         cmd = self.launch_actions.get(name)
         if not cmd:
             self.status.set_text(f"{name}: no launch command configured")
             return
+
+        if name == "ADS-B" and service_state("readsb") != "RUNNING":
+            self.status.set_text("ADS-B: starting readsb before launch…")
+
+            def worker():
+                rc, out = self.run_systemctl_noninteractive("start", "readsb", 12)
+
+                if rc == 0:
+                    GLib.idle_add(self.status.set_text, "ADS-B: readsb started")
+                elif self.is_sudo_auth_error(out):
+                    GLib.idle_add(self.status.set_text, f"ADS-B: readsb start blocked: {SERVICE_PRIV_HINT}")
+                else:
+                    tail = out.splitlines()[-1][:90] if out else "unknown error"
+                    GLib.idle_add(self.status.set_text, f"ADS-B: readsb start failed: {tail}")
+
+                # Open tar1090 regardless, so users can still view status page/output.
+                GLib.idle_add(launch_with_status, self, name, cmd)
+                GLib.timeout_add_seconds(1, self.refresh_async)
+
+            threading.Thread(target=worker, daemon=True).start()
+            return
+
         launch_with_status(self, name, cmd)
 
     def on_start_mission(self, _button):
@@ -1919,7 +2022,7 @@ class App(Gtk.Window):
         alerts_box.pack_start(require_wifi, False, False, 0)
 
         plugin_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        plugin_label = Gtk.Label(label="Custom launchers are loaded from plugins.json")
+        plugin_label = Gtk.Label(label="Custom launchers use plugins.json (or bundled defaults)")
         plugin_label.set_xalign(0)
         plugin_label.get_style_context().add_class("subtle")
         plugin_btn = Gtk.Button(label="Edit Custom Plugins")
@@ -2152,21 +2255,99 @@ class App(Gtk.Window):
         text = self.radio_text.get(dev)
         if not dot or not text:
             return
+        sw = self.radio_switches.get(dev)
         for cls in ("status-on","status-off","status-unknown"):
             dot.get_style_context().remove_class(cls)
             text.get_style_context().remove_class(cls)
+        self._radio_switch_sync = True
         if state is True:
-            dot.set_text("●"); text.set_text(f"{dev} ON")
+            dot.set_text("●")
+            text.set_text(self.radio_display_name(dev))
+            if sw is not None:
+                sw.set_active(True)
             dot.get_style_context().add_class("status-on")
-            text.get_style_context().add_class("status-on")
         elif state is False:
-            dot.set_text("●"); text.set_text(f"{dev} OFF")
+            dot.set_text("●")
+            text.set_text(self.radio_display_name(dev))
+            if sw is not None:
+                sw.set_active(False)
             dot.get_style_context().add_class("status-off")
-            text.get_style_context().add_class("status-off")
         else:
-            dot.set_text("●"); text.set_text(f"{dev} ?")
+            dot.set_text("●")
+            text.set_text(self.radio_display_name(dev))
             dot.get_style_context().add_class("status-unknown")
-            text.get_style_context().add_class("status-unknown")
+        self._radio_switch_sync = False
+
+    def radio_display_name(self, dev):
+        if dev == "USB":
+            return "USB/AC1200"
+        return dev
+
+    def ac1200_power_on(self):
+        sw = self.radio_switches.get("USB")
+        return bool(sw and sw.get_active())
+
+    def apply_ac1200_dependency_state(self, usb_on):
+        hint = self.ac1200_hint
+        normal_bt_tooltip = "Start or stop Bluetooth service"
+
+        if self.bt_switch is not None:
+            self.bt_switch.set_sensitive(usb_on)
+            self.bt_switch.set_tooltip_text(normal_bt_tooltip if usb_on else hint)
+        if self.bt_toggle_group is not None:
+            self.bt_toggle_group.set_opacity(1.0 if usb_on else 0.45)
+            self.bt_toggle_group.set_tooltip_text(normal_bt_tooltip if usb_on else hint)
+
+        if not usb_on:
+            self.set_bluetooth_toggle_visual(False)
+
+        for name in self.ac1200_dependent_names:
+            btn = self.launch_buttons.get(name) or self.builtin_buttons.get(name)
+            if btn is None:
+                continue
+            if usb_on:
+                btn.set_opacity(1.0)
+                if btn.get_sensitive():
+                    btn.set_tooltip_text(f"Launch {name}")
+            else:
+                btn.set_opacity(0.45)
+                if btn.get_sensitive():
+                    btn.set_tooltip_text(hint)
+
+    def on_radio_switch_toggled(self, switch, _param, dev):
+        if self._radio_switch_sync:
+            return
+        state = "on" if switch.get_active() else "off"
+        self.radio_command(dev, state)
+
+    def set_bluetooth_toggle_visual(self, state):
+        if self.bt_toggle_dot is None or self.bt_toggle_label is None:
+            return
+        for cls in ("status-on", "status-off", "status-unknown"):
+            self.bt_toggle_dot.get_style_context().remove_class(cls)
+        if state is True:
+            self.bt_toggle_dot.get_style_context().add_class("status-on")
+        elif state is False:
+            self.bt_toggle_dot.get_style_context().add_class("status-off")
+        else:
+            self.bt_toggle_dot.get_style_context().add_class("status-unknown")
+
+        if self.bt_switch is not None:
+            self._bt_switch_sync = True
+            self.bt_switch.set_active(bool(state))
+            self._bt_switch_sync = False
+
+    def run_systemctl_noninteractive(self, action, service, timeout=12):
+        return run_rc(f"sudo -n systemctl {action} {service}", timeout)
+
+    def is_sudo_auth_error(self, output):
+        low = str(output or "").lower()
+        return (
+            "password" in low
+            or "authentication" in low
+            or "a password is required" in low
+            or "sudoers" in low
+        )
 
     def radio_command(self, dev, state):
         self.status.set_text(f"{dev}: requesting {state.upper()}…")
@@ -2319,6 +2500,7 @@ class App(Gtk.Window):
         return {
             "cpu": cpu_temp(), "ram": memory(), "disk": disk(), "battery": battery_text,
             "gps": g, "ip": ip_info(), "eth": ethernet(), "bt": bluetooth(),
+            "bt_ctrl": bluetooth_controller(),
             "gpsd": service_state("gpsd"), "readsb": service_state("readsb"),
             "wifi": w, "aio": parse_aio_states(),
             "services": service_map,
@@ -2373,6 +2555,7 @@ class App(Gtk.Window):
         self.labels["ip"].set_text(d["ip"])
         self.labels["eth"].set_text(d["eth"])
         self.labels["bt"].set_text(d["bt"])
+        self.labels["bt_ctrl"].set_text(d.get("bt_ctrl", "none"))
         if d["wifi"]:
             self.labels["wifi"].set_text(" | ".join(f"{iface}: {detail}" for iface, detail in d["wifi"][:2]))
         else:
@@ -2413,14 +2596,31 @@ class App(Gtk.Window):
 
         for service, label in self.service_labels.items():
             state = d.get("services", {}).get(service, "OFF")
-            label.set_text(f"{service}: {state}")
-            ctx = label.get_style_context()
-            for cls in ("status-on", "status-off", "status-unknown", "subtle"):
-                ctx.remove_class(cls)
-            if state == "RUNNING":
-                ctx.add_class("status-on")
+            dot = self.service_dots.get(service)
+            if dot is None:
+                continue
+            dctx = dot.get_style_context()
+            for cls in ("status-on", "status-off", "status-unknown"):
+                dctx.remove_class(cls)
+            state_upper = str(state).upper()
+            if state_upper == "RUNNING":
+                dctx.add_class("status-on")
+            elif state_upper in ("OFF", "INACTIVE", "DEAD", "FAILED"):
+                dctx.add_class("status-off")
             else:
-                ctx.add_class("status-off")
+                dctx.add_class("status-unknown")
+
+        bt_state = d.get("services", {}).get("bluetooth", "OFF")
+        bt_state_upper = str(bt_state).upper()
+        if bt_state_upper == "RUNNING":
+            self.set_bluetooth_toggle_visual(True)
+        elif bt_state_upper in ("OFF", "INACTIVE", "DEAD", "FAILED"):
+            self.set_bluetooth_toggle_visual(False)
+        else:
+            self.set_bluetooth_toggle_visual(None)
+
+        usb_on = d.get("aio", {}).get("USB") is True
+        self.apply_ac1200_dependency_state(usb_on)
 
         alerts = self.evaluate_alerts(d)
         self.apply_alerts(alerts)
