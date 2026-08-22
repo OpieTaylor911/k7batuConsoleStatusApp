@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v1.1.8-1f8b4c?style=for-the-badge" alt="Release v1.1.8" />
+  <img src="https://img.shields.io/badge/release-v1.1.9-1f8b4c?style=for-the-badge" alt="Release v1.1.9" />
   <img src="https://img.shields.io/badge/platform-ClockworkPi%20uConsole-22324a?style=for-the-badge" alt="ClockworkPi uConsole" />
   <img src="https://img.shields.io/badge/os-Debian%2013%20Trixie-8d2a5d?style=for-the-badge" alt="Debian 13 Trixie" />
   <img src="https://img.shields.io/badge/license-MIT-444?style=for-the-badge" alt="MIT License" />
@@ -30,7 +30,7 @@ It gives builders and field operators one clean place to monitor system health, 
 
 ## At a glance
 
-- Current release: **v1.1.8** (2026-08-22)
+- Current release: **v1.1.9** (2026-08-22)
 - Platform focus: **ClockworkPi uConsole** on **Debian 13 (Trixie)**
 - Compute modules: **CM4 / CM5**
 - Hardware integration: **HackerGadgets AIO V2** and **HackerGadgets AC1200 (MediaTek MT7921U)**

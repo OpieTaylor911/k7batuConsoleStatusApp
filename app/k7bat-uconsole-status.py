@@ -19,13 +19,16 @@ import re
 import shutil
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.1.8"
+APP_VERSION = "1.1.9"
 REFRESH_SECONDS = 4
 SERVICE_PRIV_HINT = "Enable passwordless service control (sudoers) for bluetooth/readsb."
+DEFAULT_GITHUB_REPO = "OpieTaylor911/k7batuConsoleStatusApp"
 CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
 PLUGINS_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "plugins.json"
 DEFAULT_PLUGINS_PATH = Path(__file__).resolve().parent / "plugins.default.json"
@@ -157,6 +160,9 @@ def load_settings():
         "gps_nav_app": "navit",
         "alerts": dict(DEFAULT_ALERTS),
         "profile": "custom",
+        "release_check_enabled": True,
+        "github_repo": DEFAULT_GITHUB_REPO,
+        "release_popup_dismissed": "",
     }
     try:
         if not CONFIG_PATH.exists():
@@ -179,6 +185,50 @@ def save_settings(settings):
         CONFIG_PATH.write_text(json.dumps(settings, indent=2) + "\n")
     except Exception:
         pass
+
+def version_tuple(value):
+    nums = []
+    for part in re.findall(r"\d+", str(value)):
+        try:
+            nums.append(int(part))
+        except Exception:
+            return tuple(nums)
+    return tuple(nums)
+
+def is_newer_version(candidate, current):
+    c = version_tuple(candidate)
+    cur = version_tuple(current)
+    if not c:
+        return False
+    if not cur:
+        return str(candidate).strip() != str(current).strip()
+    width = max(len(c), len(cur))
+    c = c + (0,) * (width - len(c))
+    cur = cur + (0,) * (width - len(cur))
+    return c > cur
+
+def github_latest_release(repo_slug, timeout=4):
+    repo = str(repo_slug or "").strip().strip("/")
+    if not repo or "/" not in repo:
+        return None, None
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "k7bat-uconsole-status",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+        tag = str(payload.get("tag_name") or "").strip().lstrip("vV")
+        page = str(payload.get("html_url") or f"https://github.com/{repo}/releases/latest").strip()
+        if not tag:
+            return None, None
+        return tag, page
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, OSError):
+        return None, None
 
 def load_plugins():
     try:
@@ -927,6 +977,7 @@ class App(Gtk.Window):
         self.chips = {}
         self.settings = load_settings()
         self.alert_settings = self.settings.get("alerts", dict(DEFAULT_ALERTS))
+        self._release_check_started = False
         self._updating_profile_combo = False
         self.launch_actions = {}
         self.launch_buttons = {}
@@ -1337,6 +1388,7 @@ class App(Gtk.Window):
             self.refresh_profile_visibility()
         self.refresh_gps_nav_button()
         self.refresh_async()
+        GLib.timeout_add_seconds(7, self.check_for_new_release_once)
         GLib.timeout_add_seconds(REFRESH_SECONDS, self.refresh_async)
 
     def selected_gps_option(self):
@@ -1458,6 +1510,9 @@ class App(Gtk.Window):
             "gps_nav_app": imported_settings.get("gps_nav_app", "navit"),
             "alerts": {**DEFAULT_ALERTS, **(imported_settings.get("alerts", {}) if isinstance(imported_settings.get("alerts", {}), dict) else {})},
             "profile": imported_settings.get("profile", "custom"),
+            "release_check_enabled": bool(imported_settings.get("release_check_enabled", self.settings.get("release_check_enabled", True))),
+            "github_repo": str(imported_settings.get("github_repo", self.settings.get("github_repo", DEFAULT_GITHUB_REPO))).strip() or DEFAULT_GITHUB_REPO,
+            "release_popup_dismissed": str(imported_settings.get("release_popup_dismissed", "")).strip(),
         }
         self.settings = merged
         self.alert_settings = merged["alerts"]
@@ -2348,6 +2403,54 @@ class App(Gtk.Window):
             or "a password is required" in low
             or "sudoers" in low
         )
+
+    def check_for_new_release_once(self):
+        if self._release_check_started:
+            return False
+        if not self.settings.get("release_check_enabled", True):
+            return False
+
+        self._release_check_started = True
+        threading.Thread(target=self._release_check_worker, daemon=True).start()
+        return False
+
+    def _release_check_worker(self):
+        repo = str(self.settings.get("github_repo", DEFAULT_GITHUB_REPO)).strip() or DEFAULT_GITHUB_REPO
+        latest, release_url = github_latest_release(repo)
+        if not latest:
+            return
+        if not is_newer_version(latest, APP_VERSION):
+            return
+
+        dismissed = str(self.settings.get("release_popup_dismissed", "")).strip()
+        if dismissed == latest:
+            return
+
+        GLib.idle_add(self.show_new_release_popup, latest, release_url)
+
+    def show_new_release_popup(self, latest_version, release_url):
+        dlg = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.NONE,
+            text=f"New version available: v{latest_version}",
+        )
+        dlg.format_secondary_text(
+            "A newer GitHub release is available for K7BAT uConsole Status App."
+        )
+        dlg.add_button("Later", Gtk.ResponseType.CANCEL)
+        dlg.add_button("Open Release", Gtk.ResponseType.OK)
+
+        response = dlg.run()
+        dlg.destroy()
+
+        self.settings["release_popup_dismissed"] = str(latest_version)
+        save_settings(self.settings)
+
+        if response == Gtk.ResponseType.OK and release_url:
+            launch(f'xdg-open "{release_url}"')
+        return False
 
     def radio_command(self, dev, state):
         self.status.set_text(f"{dev}: requesting {state.upper()}…")

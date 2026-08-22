@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.9 - 2026-08-22
+
+- Added startup GitHub release check against the configured repository.
+- Added new-version popup when a release newer than the local app version is detected.
+- Added one-click `Open Release` action from the popup for fast update navigation.
+- Added per-version popup dismissal tracking to avoid repeated alerts for the same release.
+- Added settings persistence for release-check controls and repository target metadata.
+
 ## 1.1.8 - 2026-08-22
 
 - Added USB AIO radio power control and relabeled it as `USB/AC1200` in the HackerGadgets control row.
