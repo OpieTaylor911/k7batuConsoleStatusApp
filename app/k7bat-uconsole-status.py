@@ -678,7 +678,32 @@ def parse_aio_states():
     return states
 
 def command_exists(cmd):
-    return bool(shutil.which(cmd))
+    return resolve_executable(cmd) is not None
+
+def resolve_executable(cmd):
+    if not cmd:
+        return None
+    found = shutil.which(cmd)
+    if found:
+        return found
+
+    # Desktop launchers sometimes omit /usr/local/bin from PATH.
+    if "/" in cmd:
+        p = Path(cmd)
+        try:
+            if p.exists() and os.access(str(p), os.X_OK):
+                return str(p)
+        except OSError:
+            pass
+
+    for base in ("/usr/local/bin", "/usr/bin", "/bin", "/snap/bin"):
+        p = Path(base) / cmd
+        try:
+            if p.exists() and os.access(str(p), os.X_OK):
+                return str(p)
+        except OSError:
+            continue
+    return None
 
 def launch_target_available(check):
     if not check:
@@ -716,8 +741,9 @@ def resolve_first_command(candidates):
             if flatpak_app_installed(app_id):
                 return f"flatpak run {app_id}"
             continue
-        if command_exists(candidate):
-            return candidate
+        resolved = resolve_executable(candidate)
+        if resolved:
+            return resolved
     return None
 
 def discover_flatpak_app_id(patterns):
@@ -785,6 +811,11 @@ def launch_with_status(app, name, command):
                     GLib.idle_add(
                         app.status.set_text,
                         "SDR++ exited immediately. Check install source (native vs Flatpak).",
+                    )
+                elif name == "PyGPS":
+                    GLib.idle_add(
+                        app.status.set_text,
+                        "PyGPS exited immediately. Verify PyGPSClient dependencies.",
                     )
                 else:
                     GLib.idle_add(app.status.set_text, f"{name} exited immediately")
@@ -1162,7 +1193,11 @@ class App(Gtk.Window):
                 ["organicmaps", "omaps", "OMaps", "flatpak:app.organicmaps.desktop"],
                 ["organicmaps", "omaps", "OMaps", "flatpak:app.organicmaps.desktop"],
             ),
-            ("PyGPS","pygpsclient","pygpsclient"),
+            (
+                "PyGPS",
+                ["pygpsclient", "/usr/local/bin/pygpsclient"],
+                ["pygpsclient", "/usr/local/bin/pygpsclient"],
+            ),
             ("OSM Scout","flatpak run io.github.rinigus.OSMScoutServer","flatpak:io.github.rinigus.OSMScoutServer"),
             (
                 "SDR++",
