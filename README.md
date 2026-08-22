@@ -1,6 +1,6 @@
 # K7BAT uConsole Status App v1.1.8
 
-![K7BAT uConsole Status App interface](statusapp_1_1_4.png)
+![K7BAT uConsole Status App interface](GitDocumentation/statusapp_1_1_8.png)
 
 A GTK/Wayland desktop status and launcher application for the **ClockworkPi uConsole**, created by **K7BAT**.
 
