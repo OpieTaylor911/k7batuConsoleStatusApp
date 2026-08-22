@@ -13,8 +13,8 @@ Updated: 2026-08-21
 
 ### Partially Complete
 - [ ] Advanced GPS Quality View
-  - Current: fix, satellites, device, speed, and track are shown.
-  - Remaining: DOP history, confidence score, and sparkline trends.
+  - Current: fix/sat/device/speed/track plus sats-used, DOP (HDOP/VDOP/PDOP), confidence score, and lightweight trend history are shown.
+  - Remaining: optional graphical sparkline rendering.
 - [ ] Tactical Connectivity Pane
   - Current: Wi-Fi interface details and signal info are shown.
   - Remaining: trend history, failover state, and hotspot watchdog.

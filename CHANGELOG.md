@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.6 - 2026-08-21
+
+- Expanded GPS panel with quality metrics: satellites used, HDOP, VDOP, PDOP, and computed GPS confidence score.
+- Added lightweight history trends for satellites and PDOP to improve at-a-glance GPS quality diagnosis.
+- Enriched GPS parser to read SKY DOP fields and used-satellite counts when available.
+
 ## 1.1.5 - 2026-08-21
 
 - Added Mission Recorder with right-panel Record/Stop controls for session capture.

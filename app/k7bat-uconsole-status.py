@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.6"
 REFRESH_SECONDS = 4
 CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
 PLUGINS_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "plugins.json"
@@ -547,10 +547,57 @@ def ethernet():
 def bluetooth():
     return "ON" if service_state("bluetooth") == "RUNNING" else "OFF"
 
+def format_dop(value):
+    if isinstance(value, (int, float)):
+        return f"{float(value):.1f}"
+    return "—"
+
+def estimate_gps_confidence(mode, sats_used, pdop):
+    score = 0
+    if mode == 3:
+        score += 50
+    elif mode == 2:
+        score += 35
+    elif mode == 1:
+        score += 10
+
+    if isinstance(sats_used, int):
+        score += max(0, min(30, sats_used * 3))
+
+    if isinstance(pdop, (int, float)):
+        pd = float(pdop)
+        if pd <= 1.5:
+            score += 20
+        elif pd <= 3.0:
+            score += 15
+        elif pd <= 5.0:
+            score += 10
+        elif pd <= 8.0:
+            score += 5
+
+    return max(0, min(100, int(score)))
+
+def format_history_trend(values, max_points=8):
+    pts = [v for v in values if isinstance(v, (int, float))]
+    if not pts:
+        return "—"
+    tail = pts[-max_points:]
+    rendered = []
+    for v in tail:
+        fv = float(v)
+        if abs(fv) < 10:
+            rendered.append(f"{fv:.1f}")
+        else:
+            rendered.append(str(int(round(fv))))
+    return " > ".join(rendered)
+
 def gps_data():
     result = {
         "fix": "gpsd off", "sats": "—", "pos": "—",
-        "speed": "—", "track": "—", "device": "—"
+        "speed": "—", "track": "—", "device": "—",
+        "hdop": "—", "vdop": "—", "pdop": "—",
+        "sats_used": "—", "confidence": "—",
+        "hdop_val": None, "vdop_val": None, "pdop_val": None,
     }
     if service_state("gpsd") != "RUNNING" and run("systemctl is-active gpsd.socket") != "active":
         return result
@@ -558,6 +605,10 @@ def gps_data():
     raw = run_stdout("gpspipe -w -n 12", timeout=3)
     tpv, dev = {}, None
     sats = None
+    sats_used = None
+    hdop = None
+    vdop = None
+    pdop = None
     for line in raw.splitlines():
         try:
             j = json.loads(line)
@@ -570,10 +621,19 @@ def gps_data():
             dev = j.get("path") or dev
         elif j.get("class") == "SKY":
             sats = j.get("uSat") if j.get("uSat") is not None else j.get("nSat")
+            if sats is None and isinstance(j.get("satellites"), list):
+                sats = len(j.get("satellites"))
+            if isinstance(j.get("satellites"), list):
+                used = [s for s in j.get("satellites", []) if isinstance(s, dict) and s.get("used")]
+                sats_used = len(used)
+            hdop = j.get("hdop") if isinstance(j.get("hdop"), (int, float)) else hdop
+            vdop = j.get("vdop") if isinstance(j.get("vdop"), (int, float)) else vdop
+            pdop = j.get("pdop") if isinstance(j.get("pdop"), (int, float)) else pdop
 
     mode = tpv.get("mode", 0)
     result["fix"] = {0:"NO DATA",1:"NO FIX",2:"2D FIX",3:"3D FIX"}.get(mode, str(mode))
     result["sats"] = str(sats) if sats is not None else "—"
+    result["sats_used"] = str(sats_used) if sats_used is not None else "—"
     result["device"] = dev or "—"
     lat, lon = tpv.get("lat"), tpv.get("lon")
     if isinstance(lat, (int,float)) and isinstance(lon, (int,float)):
@@ -584,6 +644,16 @@ def gps_data():
     tr = tpv.get("track")
     if isinstance(tr, (int,float)):
         result["track"] = f"{tr:.0f}°"
+
+    result["hdop"] = format_dop(hdop)
+    result["vdop"] = format_dop(vdop)
+    result["pdop"] = format_dop(pdop)
+    result["hdop_val"] = float(hdop) if isinstance(hdop, (int, float)) else None
+    result["vdop_val"] = float(vdop) if isinstance(vdop, (int, float)) else None
+    result["pdop_val"] = float(pdop) if isinstance(pdop, (int, float)) else None
+
+    confidence = estimate_gps_confidence(mode, sats_used, pdop)
+    result["confidence"] = f"{confidence}%"
     return result
 
 def aio_available():
@@ -804,6 +874,10 @@ class App(Gtk.Window):
         self.plugins = load_plugins()
         self.service_labels = {}
         self.icon_cache = {}
+        self.gps_quality_history = {
+            "sats": [],
+            "pdop": [],
+        }
         self.mission_active = False
         self.mission_fp = None
         self.mission_file_path = None
@@ -1005,6 +1079,10 @@ class App(Gtk.Window):
         for key, label in [
             ("fix","GPS Fix"), ("sats","Satellites"), ("gpsdev","GPS Device"),
             ("pos","Position"), ("speed","Speed"), ("track","Heading"),
+            ("sats_used","Sats Used"),
+            ("hdop","HDOP"), ("vdop","VDOP"), ("pdop","PDOP"),
+            ("gps_conf","GPS Confidence"),
+            ("gps_trend_sats","Sats Trend"), ("gps_trend_pdop","PDOP Trend"),
             ("gpsd","gpsd"), ("readsb","readsb")
         ]:
             icon_name = {
@@ -1014,6 +1092,13 @@ class App(Gtk.Window):
                 "pos": "map",
                 "speed": "radar",
                 "track": "navigation",
+                "sats_used": "satellite",
+                "hdop": "radar",
+                "vdop": "radar",
+                "pdop": "radar",
+                "gps_conf": "dashboard",
+                "gps_trend_sats": "chart-line",
+                "gps_trend_pdop": "chart-line",
                 "gpsd": "radio-tower",
                 "readsb": "plane",
             }.get(key)
@@ -2144,10 +2229,15 @@ class App(Gtk.Window):
         g = d["gps"]
         self.labels["fix"].set_text(g["fix"])
         self.labels["sats"].set_text(g["sats"])
+        self.labels["sats_used"].set_text(g.get("sats_used", "—"))
         self.labels["gpsdev"].set_text(g["device"])
         self.labels["pos"].set_text(g["pos"])
         self.labels["speed"].set_text(g["speed"])
         self.labels["track"].set_text(g["track"])
+        self.labels["hdop"].set_text(g.get("hdop", "—"))
+        self.labels["vdop"].set_text(g.get("vdop", "—"))
+        self.labels["pdop"].set_text(g.get("pdop", "—"))
+        self.labels["gps_conf"].set_text(g.get("confidence", "—"))
         self.labels["gpsd"].set_text(d["gpsd"])
         self.labels["readsb"].set_text(d["readsb"])
         self.labels["ip"].set_text(d["ip"])
@@ -2157,6 +2247,20 @@ class App(Gtk.Window):
             self.labels["wifi"].set_text(" | ".join(f"{iface}: {detail}" for iface, detail in d["wifi"][:2]))
         else:
             self.labels["wifi"].set_text("—")
+
+        try:
+            sats_num = int(g.get("sats"))
+            self.gps_quality_history["sats"].append(sats_num)
+        except Exception:
+            pass
+        pdop_val = g.get("pdop_val")
+        if isinstance(pdop_val, (int, float)):
+            self.gps_quality_history["pdop"].append(float(pdop_val))
+
+        self.gps_quality_history["sats"] = self.gps_quality_history["sats"][-10:]
+        self.gps_quality_history["pdop"] = self.gps_quality_history["pdop"][-10:]
+        self.labels["gps_trend_sats"].set_text(format_history_trend(self.gps_quality_history["sats"]))
+        self.labels["gps_trend_pdop"].set_text(format_history_trend(self.gps_quality_history["pdop"]))
         for dev, state in d["aio"].items():
             self.set_radio_visual(dev, state)
 
