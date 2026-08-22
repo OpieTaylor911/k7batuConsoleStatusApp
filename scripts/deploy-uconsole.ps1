@@ -58,13 +58,21 @@ if (-not $SkipSync) {
     Invoke-Scp -Sources $sources -Destination "${HostAlias}:$RemoteDir/"
 
     Write-Host "==> Normalizing remote shell script line endings"
-    Invoke-Remote "cd '$RemoteDir' && sed -i 's/\r$//' install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status"
+        $normalizeCmd = @"
+cd '$RemoteDir'
+if command -v dos2unix >/dev/null 2>&1; then
+    dos2unix install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status >/dev/null 2>&1 || true
+else
+    sed -i 's/\r$//' install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status
+fi
+"@
+        Invoke-Remote $normalizeCmd
 }
 
 if (-not $SkipInstall) {
     Write-Host "==> Running installer on uConsole"
     $uidExpr = '$(id -u)'
-    $installCmd = "cd '$RemoteDir' && chmod +x install.sh uninstall.sh scripts/*.sh && if [ $uidExpr -eq 0 ]; then ./install.sh; else sudo ./install.sh; fi"
+        $installCmd = "cd '$RemoteDir' && chmod +x install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status && if [ $uidExpr -eq 0 ]; then ./install.sh; else sudo ./install.sh; fi"
     Invoke-Remote $installCmd
 }
 

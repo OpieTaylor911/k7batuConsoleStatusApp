@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="220" viewBox="0 0 900 220" role="img" aria-label="K7BAT Amateur Radio">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0d12"/>
+      <stop offset="1" stop-color="#121822"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="896" height="216" rx="18" fill="url(#bg)" stroke="#ef3a37" stroke-width="4"/>
+  <rect x="14" y="14" width="872" height="30" rx="12" fill="url(#shine)"/>
+
+  <g fill="#ef3a37" opacity="0.95">
+    <path d="M64 134 L88 88 L112 134 Z"/>
+    <path d="M88 88 L88 54" stroke="#ef3a37" stroke-width="5" fill="none"/>
+    <path d="M88 52 m-24 0 a24 24 0 0 1 48 0" stroke="#ef3a37" stroke-width="5" fill="none"/>
+    <path d="M88 52 m-38 0 a38 38 0 0 1 76 0" stroke="#ef3a37" stroke-width="5" fill="none"/>
+    <path d="M88 52 m-52 0 a52 52 0 0 1 104 0" stroke="#ef3a37" stroke-width="5" fill="none"/>
+  </g>
+
+  <g fill="#f5f7fb" font-family="DejaVu Sans, Sans-Serif" font-weight="800" letter-spacing="2">
+    <text x="160" y="130" font-size="108">K</text>
+    <text x="232" y="130" font-size="108" fill="#ef3a37">7</text>
+    <text x="302" y="130" font-size="108">BAT</text>
+  </g>
+
+  <g fill="#d7dce5" font-family="DejaVu Sans, Sans-Serif" font-weight="700" letter-spacing="3">
+    <text x="545" y="174" font-size="34">AMATEUR RADIO</text>
+  </g>
+
+  <path d="M520 168 C545 158, 575 178, 600 168 C625 158, 655 178, 680 168" stroke="#ef3a37" stroke-width="3.5" fill="none"/>
+  <path d="M685 168 C705 160, 725 176, 745 168" stroke="#ef3a37" stroke-width="3.5" fill="none"/>
+</svg>

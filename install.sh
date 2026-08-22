@@ -84,13 +84,25 @@ done
 log "Installing application"
 mkdir -p "$PREFIX"
 install -m 0755 "$SCRIPT_DIR/app/k7bat-uconsole-status.py" "$PREFIX/k7bat-uconsole-status.py"
+if [ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" ]; then
+  install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" "$PREFIX/k7bat-callsign-logo.png"
+fi
+if [ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.svg" ]; then
+  install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.svg" "$PREFIX/k7bat-callsign-logo.svg"
+fi
+if [ -d "$SCRIPT_DIR/assets/icons" ]; then
+  mkdir -p "$PREFIX/icons"
+  find "$SCRIPT_DIR/assets/icons" -maxdepth 1 -type f -name '*.svg' -exec install -m 0644 {} "$PREFIX/icons/" \;
+fi
 install -m 0755 "$SCRIPT_DIR/scripts/k7bat-uconsole-status" /usr/local/bin/k7bat-uconsole-status
+install -m 0755 "$SCRIPT_DIR/scripts/find-gps-apps.sh" /usr/local/bin/find-gps-apps
 ln -sfn /usr/local/bin/k7bat-uconsole-status /usr/local/bin/uconsole-dashboard
 
 install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.svg" \
   /usr/share/icons/hicolor/scalable/apps/k7bat-uconsole-status.svg
-install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
-  /usr/share/applications/k7bat-uconsole-status.desktop
+tr -d '\r' < "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
+  > /usr/share/applications/k7bat-uconsole-status.desktop
+chmod 0644 /usr/share/applications/k7bat-uconsole-status.desktop
 
 gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
 update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
@@ -98,20 +110,23 @@ update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 if [[ -n "${GUI_USER:-}" ]]; then
   log "Creating desktop shortcut"
   DESKTOP_DIR="$GUI_HOME/Desktop"
+  SYSTEM_DESKTOP_FILE="/usr/share/applications/k7bat-uconsole-status.desktop"
+  USER_DESKTOP_FILE="$DESKTOP_DIR/K7BAT-uConsole-Status-App.desktop"
   if command -v xdg-user-dir >/dev/null 2>&1; then
     FOUND="$(sudo -u "$GUI_USER" HOME="$GUI_HOME" xdg-user-dir DESKTOP 2>/dev/null || true)"
     [[ -n "$FOUND" ]] && DESKTOP_DIR="$FOUND"
+    USER_DESKTOP_FILE="$DESKTOP_DIR/K7BAT-uConsole-Status-App.desktop"
   fi
   mkdir -p "$DESKTOP_DIR"
-  install -m 0755 "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
-    "$DESKTOP_DIR/K7BAT-uConsole-Status-App.desktop"
-  chown "$GUI_USER:$GUI_USER" "$DESKTOP_DIR/K7BAT-uConsole-Status-App.desktop"
+  rm -f "$USER_DESKTOP_FILE"
+  ln -s "$SYSTEM_DESKTOP_FILE" "$USER_DESKTOP_FILE"
+  chown -h "$GUI_USER:$GUI_USER" "$USER_DESKTOP_FILE"
 
   if [[ -S "/run/user/$GUI_UID/bus" ]]; then
     sudo -u "$GUI_USER" \
       XDG_RUNTIME_DIR="/run/user/$GUI_UID" \
       DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$GUI_UID/bus" \
-      gio set "$DESKTOP_DIR/K7BAT-uConsole-Status-App.desktop" metadata::trusted true \
+      gio set "$USER_DESKTOP_FILE" metadata::trusted true \
       >/dev/null 2>&1 || true
   fi
 fi
@@ -170,3 +185,8 @@ echo "Run manually from a graphical terminal with:"
 echo "  k7bat-uconsole-status"
 echo
 echo "Optional application buttons light up automatically when those tools are installed."
+
+# K7BAT GPS / Navigation Suite
+if [[ -x "$SCRIPT_DIR/scripts/install-k7bat-gps-nav-suite.sh" ]]; then
+    "$SCRIPT_DIR/scripts/install-k7bat-gps-nav-suite.sh"
+fi
