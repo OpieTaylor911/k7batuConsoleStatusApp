@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.7 - 2026-08-21
+
+- Added Tactical Connectivity rows in Network panel: Active Link, Wi-Fi Trend, Failover, and Hotspot Watchdog.
+- Added live Wi-Fi signal trend history (dBm) for quick link quality checks.
+- Added active-link failover status updates to highlight path changes (Wi-Fi/Ethernet/Offline).
+- Added hotspot watchdog status to flag repeated offline checks.
+
 ## 1.1.6 - 2026-08-21
 
 - Expanded GPS panel with quality metrics: satellites used, HDOP, VDOP, PDOP, and computed GPS confidence score.

@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.1.6"
+APP_VERSION = "1.1.7"
 REFRESH_SECONDS = 4
 CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
 PLUGINS_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "plugins.json"
@@ -781,6 +781,11 @@ def launch_with_status(app, name, command):
                 p.wait(timeout=2.5)
                 if name == "GPS Nav":
                     GLib.idle_add(app.status.set_text, "GPS Nav exited. Navit needs a mapset configured.")
+                elif name == "SDR++":
+                    GLib.idle_add(
+                        app.status.set_text,
+                        "SDR++ exited immediately. Check install source (native vs Flatpak).",
+                    )
                 else:
                     GLib.idle_add(app.status.set_text, f"{name} exited immediately")
             except subprocess.TimeoutExpired:
@@ -877,6 +882,11 @@ class App(Gtk.Window):
         self.gps_quality_history = {
             "sats": [],
             "pdop": [],
+        }
+        self.connectivity_history = {
+            "wifi_dbm": [],
+            "active_link": [],
+            "offline_streak": 0,
         }
         self.mission_active = False
         self.mission_fp = None
@@ -1079,10 +1089,9 @@ class App(Gtk.Window):
         for key, label in [
             ("fix","GPS Fix"), ("sats","Satellites"), ("gpsdev","GPS Device"),
             ("pos","Position"), ("speed","Speed"), ("track","Heading"),
-            ("sats_used","Sats Used"),
-            ("hdop","HDOP"), ("vdop","VDOP"), ("pdop","PDOP"),
-            ("gps_conf","GPS Confidence"),
-            ("gps_trend_sats","Sats Trend"), ("gps_trend_pdop","PDOP Trend"),
+            ("gps_quality","GPS Quality"),
+            ("dop_summary","DOP (H/V/P)"),
+            ("gps_trend","Trend"),
             ("gpsd","gpsd"), ("readsb","readsb")
         ]:
             icon_name = {
@@ -1092,13 +1101,9 @@ class App(Gtk.Window):
                 "pos": "map",
                 "speed": "radar",
                 "track": "navigation",
-                "sats_used": "satellite",
-                "hdop": "radar",
-                "vdop": "radar",
-                "pdop": "radar",
-                "gps_conf": "dashboard",
-                "gps_trend_sats": "chart-line",
-                "gps_trend_pdop": "chart-line",
+                "gps_quality": "dashboard",
+                "dop_summary": "radar",
+                "gps_trend": "chart-line",
                 "gpsd": "radio-tower",
                 "readsb": "plane",
             }.get(key)
@@ -1108,6 +1113,10 @@ class App(Gtk.Window):
         self.add_row(self.net_box, "eth", "Ethernet", "ethernet")
         self.add_row(self.net_box, "bt", "Bluetooth", "bluetooth")
         self.add_row(self.net_box, "wifi", "Wi-Fi", "wifi")
+        self.add_row(self.net_box, "active_link", "Active Link", "network")
+        self.add_row(self.net_box, "wifi_trend", "Wi-Fi Trend", "chart-line")
+        self.add_row(self.net_box, "failover", "Failover", "switch-horizontal")
+        self.add_row(self.net_box, "hotspot_watchdog", "Hotspot Watch", "shield")
 
         radio_frame = Gtk.Frame()
         radio_frame.set_label_widget(self.make_icon_label("HackerGadgets AIO V2 Radio Power", "radio", 15))
@@ -1155,7 +1164,23 @@ class App(Gtk.Window):
             ),
             ("PyGPS","pygpsclient","pygpsclient"),
             ("OSM Scout","flatpak run io.github.rinigus.OSMScoutServer","flatpak:io.github.rinigus.OSMScoutServer"),
-            ("SDR++","sdrpp","sdrpp"),
+            (
+                "SDR++",
+                [
+                    "sdrpp",
+                    "sdr++",
+                    "sdrpp-qt",
+                    "flatpak:org.sdrpp.sdrpp",
+                    "flatpak:org.sdrpp.SDRPlusPlus",
+                ],
+                [
+                    "sdrpp",
+                    "sdr++",
+                    "sdrpp-qt",
+                    "flatpak:org.sdrpp.sdrpp",
+                    "flatpak:org.sdrpp.SDRPlusPlus",
+                ],
+            ),
             ("GQRX","gqrx","gqrx"),
             ("ADS-B","xdg-open http://127.0.0.1/tar1090/","xdg-open"),
             ("Wireshark","wireshark","wireshark"),
@@ -1187,6 +1212,10 @@ class App(Gtk.Window):
 
             if isinstance(cmd, (list, tuple)):
                 resolved = resolve_first_command(cmd)
+                if not resolved and name == "SDR++":
+                    discovered = discover_flatpak_app_id(["sdrpp", "sdr++", "sdr plus plus"])
+                    if discovered:
+                        resolved = f"flatpak run {discovered}"
                 available = bool(resolved)
                 self.launch_actions[name] = resolved
                 b.set_sensitive(available)
@@ -2115,6 +2144,71 @@ class App(Gtk.Window):
             GLib.timeout_add_seconds(1, self.refresh_async)
         threading.Thread(target=worker, daemon=True).start()
 
+    def extract_wifi_signal_dbm(self, wifi_rows):
+        best = None
+        for _iface, detail in wifi_rows:
+            m = re.search(r"(-?\d+(?:\.\d+)?)\s*dBm", detail)
+            if not m:
+                continue
+            try:
+                val = float(m.group(1))
+            except Exception:
+                continue
+            if best is None or val > best:
+                best = val
+        return best
+
+    def ethernet_is_up(self, eth_text):
+        parts = [p.strip().lower() for p in str(eth_text or "").split(",") if p.strip()]
+        for p in parts:
+            if p.endswith(" up") or " up " in p:
+                return True
+        return False
+
+    def connectivity_active_link(self, data):
+        wifi_rows = data.get("wifi", []) if isinstance(data.get("wifi", []), list) else []
+        if wifi_rows:
+            return "Wi-Fi"
+        if self.ethernet_is_up(data.get("eth", "")):
+            return "Ethernet"
+        return "Offline"
+
+    def update_connectivity_labels(self, data):
+        active = self.connectivity_active_link(data)
+        self.labels["active_link"].set_text(active)
+
+        wifi_rows = data.get("wifi", []) if isinstance(data.get("wifi", []), list) else []
+        dbm = self.extract_wifi_signal_dbm(wifi_rows)
+        if isinstance(dbm, (int, float)):
+            self.connectivity_history["wifi_dbm"].append(float(dbm))
+        self.connectivity_history["wifi_dbm"] = self.connectivity_history["wifi_dbm"][-10:]
+        self.labels["wifi_trend"].set_text(format_history_trend(self.connectivity_history["wifi_dbm"], 6))
+
+        links = self.connectivity_history["active_link"]
+        links.append(active)
+        self.connectivity_history["active_link"] = links[-8:]
+
+        prev = None
+        if len(links) >= 2:
+            prev = links[-2]
+        if prev and prev != active:
+            self.labels["failover"].set_text(f"Changed: {prev} -> {active}")
+        else:
+            self.labels["failover"].set_text(f"Stable: {active}")
+
+        if active == "Offline":
+            self.connectivity_history["offline_streak"] += 1
+        else:
+            self.connectivity_history["offline_streak"] = 0
+
+        streak = self.connectivity_history["offline_streak"]
+        if streak >= 3:
+            self.labels["hotspot_watchdog"].set_text(f"WARN: no uplink ({streak} checks)")
+        elif streak > 0:
+            self.labels["hotspot_watchdog"].set_text(f"Watching ({streak})")
+        else:
+            self.labels["hotspot_watchdog"].set_text("OK")
+
     def evaluate_alerts(self, d):
         alerts = []
         cfg = self.alert_settings or dict(DEFAULT_ALERTS)
@@ -2229,15 +2323,16 @@ class App(Gtk.Window):
         g = d["gps"]
         self.labels["fix"].set_text(g["fix"])
         self.labels["sats"].set_text(g["sats"])
-        self.labels["sats_used"].set_text(g.get("sats_used", "—"))
         self.labels["gpsdev"].set_text(g["device"])
         self.labels["pos"].set_text(g["pos"])
         self.labels["speed"].set_text(g["speed"])
         self.labels["track"].set_text(g["track"])
-        self.labels["hdop"].set_text(g.get("hdop", "—"))
-        self.labels["vdop"].set_text(g.get("vdop", "—"))
-        self.labels["pdop"].set_text(g.get("pdop", "—"))
-        self.labels["gps_conf"].set_text(g.get("confidence", "—"))
+        self.labels["gps_quality"].set_text(
+            f"{g.get('confidence', '—')} • used {g.get('sats_used', '—')}"
+        )
+        self.labels["dop_summary"].set_text(
+            f"{g.get('hdop', '—')} / {g.get('vdop', '—')} / {g.get('pdop', '—')}"
+        )
         self.labels["gpsd"].set_text(d["gpsd"])
         self.labels["readsb"].set_text(d["readsb"])
         self.labels["ip"].set_text(d["ip"])
@@ -2247,6 +2342,8 @@ class App(Gtk.Window):
             self.labels["wifi"].set_text(" | ".join(f"{iface}: {detail}" for iface, detail in d["wifi"][:2]))
         else:
             self.labels["wifi"].set_text("—")
+
+        self.update_connectivity_labels(d)
 
         try:
             sats_num = int(g.get("sats"))
@@ -2259,8 +2356,10 @@ class App(Gtk.Window):
 
         self.gps_quality_history["sats"] = self.gps_quality_history["sats"][-10:]
         self.gps_quality_history["pdop"] = self.gps_quality_history["pdop"][-10:]
-        self.labels["gps_trend_sats"].set_text(format_history_trend(self.gps_quality_history["sats"]))
-        self.labels["gps_trend_pdop"].set_text(format_history_trend(self.gps_quality_history["pdop"]))
+        self.labels["gps_trend"].set_text(
+            f"sats {format_history_trend(self.gps_quality_history['sats'], 5)} • "
+            f"pdop {format_history_trend(self.gps_quality_history['pdop'], 5)}"
+        )
         for dev, state in d["aio"].items():
             self.set_radio_visual(dev, state)
 

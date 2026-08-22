@@ -16,8 +16,8 @@ Updated: 2026-08-21
   - Current: fix/sat/device/speed/track plus sats-used, DOP (HDOP/VDOP/PDOP), confidence score, and lightweight trend history are shown.
   - Remaining: optional graphical sparkline rendering.
 - [ ] Tactical Connectivity Pane
-  - Current: Wi-Fi interface details and signal info are shown.
-  - Remaining: trend history, failover state, and hotspot watchdog.
+  - Current: Wi-Fi details plus Active Link, Wi-Fi trend history, failover state, and hotspot watchdog are shown.
+  - Remaining: scan-and-connect helper actions.
 - [ ] Touch-First Field UI Mode
   - Current: compact two-column layout and maximized start.
   - Remaining: dedicated touch mode toggle, high-contrast mode, and day/night theme.
@@ -47,3 +47,7 @@ Updated: 2026-08-21
 - [x] Restore Latest Auto snapshot
 - [x] Auto snapshot retention policy (per-context)
 - [x] Flatpak-aware GPS app discovery improvements
+
+## Future UX Pattern
+
+- [ ] Add on-demand detail popups for advanced diagnostics (GPS quality, connectivity, services) so the main panel stays compact for normal use.
