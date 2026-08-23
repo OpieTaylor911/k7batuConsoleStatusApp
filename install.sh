@@ -59,6 +59,7 @@ REQUIRED=(
   python3
   python3-gi
   gir1.2-gtk-3.0
+  librtaudio7
   gpsd
   gpsd-clients
   iproute2
@@ -80,6 +81,11 @@ for pkg in "${REQUIRED[@]}"; do
     warn "$pkg is not available in configured repositories"
   fi
 done
+
+if [[ -f "$SCRIPT_DIR/scripts/install-sdrpp-fixes.sh" ]]; then
+  log "Applying SDR++ compatibility fixes"
+  bash "$SCRIPT_DIR/scripts/install-sdrpp-fixes.sh" || warn "SDR++ fix script returned a warning"
+fi
 
 log "Installing application"
 mkdir -p "$PREFIX"

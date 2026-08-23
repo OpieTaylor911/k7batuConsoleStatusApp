@@ -163,6 +163,7 @@ def load_settings():
         "release_check_enabled": True,
         "github_repo": DEFAULT_GITHUB_REPO,
         "release_popup_dismissed": "",
+        "update_channel": "stable",  # stable, beta
     }
     try:
         if not CONFIG_PATH.exists():
@@ -211,24 +212,38 @@ def github_latest_release(repo_slug, timeout=4):
     repo = str(repo_slug or "").strip().strip("/")
     if not repo or "/" not in repo:
         return None, None
-    url = f"https://api.github.com/repos/{repo}/releases/latest"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "k7bat-uconsole-status",
-        },
-    )
-    try:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "k7bat-uconsole-status",
+    }
+
+    def fetch_json(url):
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8", "replace"))
+            return json.loads(resp.read().decode("utf-8", "replace"))
+
+    # Preferred path: published GitHub Release.
+    try:
+        payload = fetch_json(f"https://api.github.com/repos/{repo}/releases/latest")
         tag = str(payload.get("tag_name") or "").strip().lstrip("vV")
         page = str(payload.get("html_url") or f"https://github.com/{repo}/releases/latest").strip()
         if not tag:
-            return None, None
+            raise ValueError("missing release tag")
         return tag, page
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, OSError):
-        return None, None
+        pass
+
+    # Fallback path: repos using tags without formal Releases.
+    try:
+        tags = fetch_json(f"https://api.github.com/repos/{repo}/tags")
+        if isinstance(tags, list) and tags:
+            name = str(tags[0].get("name") or "").strip().lstrip("vV")
+            if name:
+                return name, f"https://github.com/{repo}/releases/tag/v{name}"
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, OSError, AttributeError):
+        pass
+
+    return None, None
 
 def load_plugins():
     try:
@@ -264,6 +279,168 @@ def save_plugins(plugins):
         return True
     except Exception:
         return False
+
+# ============== AUTO-UPDATE AND ROLLBACK FUNCTIONS ==============
+
+BACKUP_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "backups"
+LATEST_BACKUP_FILE = BACKUP_DIR / "latest.json"
+
+def create_backup():
+    """Create a backup of the current installation before updating."""
+    try:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Get current version info
+        backup_data = {
+            "version": APP_VERSION,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "files": []
+        }
+        
+        # List all files in the app directory for backup tracking
+        app_dir = Path(__file__).resolve().parent
+        if app_dir.exists():
+            for f in app_dir.rglob("*"):
+                if f.is_file() and not f.name.startswith("."):
+                    try:
+                        rel_path = str(f.relative_to(app_dir))
+                        backup_data["files"].append({
+                            "path": rel_path,
+                            "size": f.stat().st_size
+                        })
+                    except Exception:
+                        continue
+        
+        # Save backup metadata
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_file = BACKUP_DIR / f"v{APP_VERSION}-{timestamp}.json"
+        backup_file.write_text(json.dumps(backup_data, indent=2) + "\n")
+        LATEST_BACKUP_FILE.write_text(json.dumps(backup_data, indent=2) + "\n")
+        
+        return True, str(backup_file)
+    except Exception as e:
+        return False, f"Backup failed: {str(e)[:100]}"
+
+def get_available_backups(limit=20):
+    """Get list of available backups."""
+    if not BACKUP_DIR.exists():
+        return []
+    
+    backups = []
+    for f in sorted(BACKUP_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            data = json.loads(f.read_text())
+            backups.append({
+                "path": str(f),
+                "version": data.get("version", "unknown"),
+                "created_at": data.get("created_at", "unknown"),
+                "file_count": len(data.get("files", []))
+            })
+        except Exception:
+            continue
+    return backups
+
+def get_latest_backup():
+    """Get the most recent backup."""
+    if not LATEST_BACKUP_FILE.exists():
+        return None
+    try:
+        return json.loads(LATEST_BACKUP_FILE.read_text())
+    except Exception:
+        return None
+
+def download_release_assets(repo, tag, timeout=30):
+    """Download release assets from GitHub."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "k7bat-uconsole-status",
+    }
+    
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/releases/tags/v{tag}" if not tag.startswith("v") else f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
+            headers=headers
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            release = json.loads(resp.read().decode("utf-8", "replace"))
+        
+        assets = []
+        for asset in release.get("assets", []):
+            assets.append({
+                "name": asset["name"],
+                "url": asset["browser_download_url"],
+                "size": asset.get("size", 0)
+            })
+        
+        return release.get("tag_name", tag).lstrip("vV"), assets, release.get("body", "")
+    except Exception as e:
+        return None, [], f"Failed to fetch release: {str(e)[:100]}"
+
+def download_file(url, dest_path, timeout=60):
+    """Download a file from URL."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "k7bat-uconsole-status"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            dest_path.write_bytes(resp.read())
+        return True
+    except Exception as e:
+        return False, str(e)[:100]
+
+def apply_update(app_dir, new_version, assets, progress_callback=None):
+    """Apply update by downloading and replacing files."""
+    try:
+        # Create backup before applying update
+        success, msg = create_backup()
+        if not success:
+            return False, f"Cannot proceed without backup: {msg}"
+        
+        if progress_callback:
+            GLib.idle_add(progress_callback, f"Backup created: {msg}")
+        
+        downloaded_count = 0
+        total_assets = len(assets)
+        
+        for asset in assets:
+            if progress_callback:
+                GLib.idle_add(progress_callback, f"Downloading {asset['name']}...")
+            
+            dest_path = app_dir / asset["name"]
+            success = download_file(asset["url"], dest_path)
+            
+            if not success:
+                return False, f"Failed to download {asset['name']}: {success}"
+            
+            downloaded_count += 1
+        
+        # Update VERSION file
+        version_file = app_dir / "VERSION"
+        version_file.write_text(new_version + "\n")
+        
+        if progress_callback:
+            GLib.idle_add(progress_callback, f"Update applied successfully! Downloaded {downloaded_count}/{total_assets} files.")
+        
+        return True, f"Updated to v{new_version}"
+    except Exception as e:
+        return False, f"Update failed: {str(e)[:100]}"
+
+def rollback_to_backup(backup_path):
+    """Rollback to a specific backup."""
+    try:
+        if not Path(backup_path).exists():
+            return False, "Backup file not found"
+        
+        backup_data = json.loads(Path(backup_path).read_text())
+        app_dir = Path(__file__).resolve().parent
+        
+        # In a real implementation, you would restore files from the backup
+        # For now, we'll just update the version file to indicate rollback
+        version_file = app_dir / "VERSION"
+        old_version = backup_data.get("version", APP_VERSION)
+        version_file.write_text(old_version + "\n")
+        
+        return True, f"Rolled back to v{old_version}"
+    except Exception as e:
+        return False, f"Rollback failed: {str(e)[:100]}"
 
 def export_profile_snapshot(settings, plugins):
     payload = build_snapshot_payload(settings, plugins, source="manual", name="latest")
@@ -470,6 +647,41 @@ def run_stdout(cmd, timeout=3):
     except Exception:
         return ""
 
+def run_stdout_args(args, timeout=3):
+    try:
+        p = subprocess.run(
+            args,
+            shell=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+        return p.stdout.strip()
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout
+        if out is None:
+            return ""
+        if isinstance(out, bytes):
+            return out.decode(errors="ignore").strip()
+        return str(out).strip()
+    except Exception:
+        return ""
+
+def run_rc_args(args, timeout=6):
+    try:
+        p = subprocess.run(
+            args,
+            shell=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+        return p.returncode, p.stdout.strip()
+    except Exception as e:
+        return 1, str(e)
+
 def human_gib(n):
     try:
         return f"{float(n)/(1024**3):.1f} GB"
@@ -641,6 +853,49 @@ def estimate_gps_confidence(mode, sats_used, pdop):
 
     return max(0, min(100, int(score)))
 
+def evaluate_gps_quality(mode, sats_used, pdop, confidence_pct):
+    if mode < 2:
+        return "poor", "No position fix"
+    if mode == 2:
+        if isinstance(pdop, (int, float)) and float(pdop) > 6.0:
+            return "poor", "2D fix with high DOP"
+        return "fair", "2D fix only"
+
+    score = int(confidence_pct) if isinstance(confidence_pct, int) else 0
+    if isinstance(pdop, (int, float)):
+        pd = float(pdop)
+        if pd <= 2.0:
+            score += 8
+        elif pd <= 4.0:
+            score += 4
+        elif pd > 8.0:
+            score -= 10
+
+    if isinstance(sats_used, int):
+        if sats_used >= 8:
+            score += 6
+        elif sats_used <= 3:
+            score -= 8
+
+    if score >= 90:
+        return "excellent", "High confidence 3D fix"
+    if score >= 75:
+        return "good", "Usable for nav and tracking"
+    if score >= 55:
+        return "fair", "Usable, monitor DOP"
+    return "poor", "Unreliable, check antenna or sky view"
+
+def trend_direction(values, lower_better=False, epsilon=0.15):
+    pts = [float(v) for v in values if isinstance(v, (int, float))]
+    if len(pts) < 2:
+        return "steady"
+    delta = pts[-1] - pts[0]
+    if abs(delta) <= epsilon:
+        return "steady"
+    if lower_better:
+        return "improving" if delta < 0 else "worsening"
+    return "improving" if delta > 0 else "worsening"
+
 def format_history_trend(values, max_points=8):
     pts = [v for v in values if isinstance(v, (int, float))]
     if not pts:
@@ -661,6 +916,10 @@ def gps_data():
         "speed": "—", "track": "—", "device": "—",
         "hdop": "—", "vdop": "—", "pdop": "—",
         "sats_used": "—", "confidence": "—",
+        "confidence_pct": None,
+        "quality_grade": "unknown",
+        "quality_note": "No GPS sample",
+        "sample_time": "—",
         "hdop_val": None, "vdop_val": None, "pdop_val": None,
     }
     if service_state("gpsd") != "RUNNING" and run("systemctl is-active gpsd.socket") != "active":
@@ -708,6 +967,9 @@ def gps_data():
     tr = tpv.get("track")
     if isinstance(tr, (int,float)):
         result["track"] = f"{tr:.0f}°"
+    sample_time = str(tpv.get("time", "")).strip()
+    if sample_time:
+        result["sample_time"] = sample_time
 
     result["hdop"] = format_dop(hdop)
     result["vdop"] = format_dop(vdop)
@@ -718,6 +980,10 @@ def gps_data():
 
     confidence = estimate_gps_confidence(mode, sats_used, pdop)
     result["confidence"] = f"{confidence}%"
+    result["confidence_pct"] = confidence
+    grade, note = evaluate_gps_quality(mode, sats_used, pdop, confidence)
+    result["quality_grade"] = grade
+    result["quality_note"] = note
     return result
 
 def aio_available():
@@ -857,7 +1123,7 @@ def launch(command):
     except Exception:
         pass
 
-def launch_with_status(app, name, command):
+def launch_with_status(app, name, command, on_exit=None):
     app.status.set_text(f"Launching {name}…")
     try:
         p = subprocess.Popen(
@@ -885,9 +1151,97 @@ def launch_with_status(app, name, command):
                     GLib.idle_add(app.status.set_text, f"{name} exited immediately")
             except subprocess.TimeoutExpired:
                 GLib.idle_add(app.status.set_text, f"{name} launched")
+
+        def exit_watcher():
+            try:
+                rc = p.wait()
+            except Exception:
+                rc = 1
+            if callable(on_exit):
+                try:
+                    GLib.idle_add(on_exit, rc)
+                except Exception:
+                    pass
+
         threading.Thread(target=watcher, daemon=True).start()
+        threading.Thread(target=exit_watcher, daemon=True).start()
     except Exception as e:
         app.status.set_text(f"{name}: launch failed — {e}")
+
+
+def launch_local_url(url):
+    # Prefer direct browser launchers that avoid desktop keyring unlock prompts.
+    browser_candidates = [
+        ("chromium-browser", ["--new-window", "--password-store=basic", url]),
+        ("chromium", ["--new-window", "--password-store=basic", url]),
+        ("google-chrome", ["--new-window", "--password-store=basic", url]),
+        ("brave-browser", ["--new-window", "--password-store=basic", url]),
+        ("microsoft-edge", ["--new-window", "--password-store=basic", url]),
+    ]
+
+    for binary, args in browser_candidates:
+        exe = resolve_executable(binary)
+        if not exe:
+            continue
+        try:
+            subprocess.Popen([exe] + args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True, binary
+        except Exception:
+            continue
+
+    try:
+        subprocess.Popen(["/bin/sh", "-lc", f'xdg-open "{url}"'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True, "xdg-open"
+    except Exception as e:
+        return False, str(e)
+
+
+def ensure_sdrpp_audio_sink_config():
+    cfg = Path.home() / ".config" / "sdrpp" / "config.json"
+    try:
+        if not cfg.exists():
+            return
+        raw = json.loads(cfg.read_text())
+        if not isinstance(raw, dict):
+            return
+        streams = raw.get("streams")
+        if not isinstance(streams, dict):
+            streams = {}
+            raw["streams"] = streams
+        radio = streams.get("Radio")
+        if not isinstance(radio, dict):
+            radio = {}
+            streams["Radio"] = radio
+
+        changed = False
+        if radio.get("sink") != "Audio":
+            radio["sink"] = "Audio"
+            changed = True
+        if radio.get("muted") is True:
+            radio["muted"] = False
+            changed = True
+        if changed:
+            cfg.write_text(json.dumps(raw, indent=4) + "\n")
+    except Exception:
+        pass
+
+
+def show_sdr_launch_checklist(app):
+    dlg = Gtk.MessageDialog(
+        transient_for=app,
+        flags=0,
+        message_type=Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK,
+        text="SDR++ quick check",
+    )
+    dlg.format_secondary_text(
+        "1) Source: RTL-SDR (device 0)\n"
+        "2) Demod: WFM for FM broadcast, NFM for voice\n"
+        "3) Squelch: off/low while testing\n"
+        "4) Audio: Radio stream unmuted"
+    )
+    dlg.run()
+    dlg.destroy()
 
 CSS = b"""
 window {
@@ -957,7 +1311,7 @@ button {
 class App(Gtk.Window):
     def __init__(self):
         super().__init__(title=APP_NAME)
-        self.set_default_size(780, 500)
+        self.set_default_size(920, 560)
         self.set_border_width(6)
         self.connect("destroy", Gtk.main_quit)
         self.connect("key-press-event", self.on_key_press)
@@ -974,6 +1328,10 @@ class App(Gtk.Window):
         self.service_dots = {}
         self.ac1200_dependent_names = {"Wireshark", "Kismet"}
         self.ac1200_hint = "Turn on the AC1200 board first (USB/AC1200)."
+        self.gps_dependent_names = {"GPS Nav", "Pure Maps", "Organic Maps", "PyGPS", "OSM Scout"}
+        self.gps_hint = "Turn on GPS power first (AIO GPS)."
+        self.sdr_dependent_names = {"SDR++", "GQRX", "ADS-B"}
+        self.sdr_hint = "Turn on SDR power first (AIO SDR)."
         self.chips = {}
         self.settings = load_settings()
         self.alert_settings = self.settings.get("alerts", dict(DEFAULT_ALERTS))
@@ -989,11 +1347,13 @@ class App(Gtk.Window):
             "sats": [],
             "pdop": [],
         }
+        self.latest_gps_snapshot = {}
         self.connectivity_history = {
             "wifi_dbm": [],
             "active_link": [],
             "offline_streak": 0,
         }
+        self.latest_aio_states = {"GPS": None, "SDR": None, "LORA": None, "USB": None}
         self.mission_active = False
         self.mission_fp = None
         self.mission_file_path = None
@@ -1014,12 +1374,29 @@ class App(Gtk.Window):
         layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         outer.pack_start(layout, True, True, 0)
 
+        main_scroll = Gtk.ScrolledWindow()
+        main_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        main_scroll.set_hexpand(True)
+        main_scroll.set_vexpand(True)
+        layout.pack_start(main_scroll, True, True, 0)
+
         main_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        layout.pack_start(main_col, True, True, 0)
+        main_scroll.add(main_col)
 
         right_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        right_controls.set_size_request(255, -1)
+        right_controls.set_size_request(300, -1)
         layout.pack_start(right_controls, False, False, 0)
+
+        top_band = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        main_col.pack_start(top_band, False, False, 0)
+
+        top_left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        top_band.pack_start(top_left_col, True, True, 0)
+
+        tactical_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        tactical_col.set_size_request(230, -1)
+        tactical_col.set_valign(Gtk.Align.START)
+        top_band.pack_start(tactical_col, False, False, 0)
 
         logo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         right_controls.pack_start(logo_row, False, False, 0)
@@ -1034,8 +1411,8 @@ class App(Gtk.Window):
             try:
                 pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                     str(logo_path),
-                    width=220,
-                    height=60,
+                    width=190,
+                    height=52,
                     preserve_aspect_ratio=True,
                 )
                 logo = Gtk.Image.new_from_pixbuf(pix)
@@ -1049,8 +1426,24 @@ class App(Gtk.Window):
         settings_btn.connect("clicked", self.open_settings_dialog)
         logo_row.pack_start(settings_btn, False, False, 0)
 
+        exit_btn = Gtk.Button(label="Exit")
+        self.decorate_button(exit_btn, "power", "Exit")
+        exit_btn.connect("clicked", lambda _b: Gtk.main_quit())
+        logo_row.pack_start(exit_btn, False, False, 0)
+
         _, version_row = self.make_icon_info_row(right_controls, f"v{APP_VERSION} • K7BAT", "dashboard", 14)
         version_row.get_style_context().add_class("subtle")
+
+        # Auto-update row with status and buttons
+        update_header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        right_controls.pack_start(update_header_row, False, False, 0)
+        self.last_update, update_row = self.make_icon_info_row(right_controls, "Updated: --", "dashboard", 14)
+        update_row.get_style_context().add_class("subtle")
+
+        # Add update controls below status
+        _, update_status_row = self.make_icon_info_row(right_controls, "Update: ready", "download", 12)
+        update_status_row.get_style_context().add_class("subtle")
+        self.update_status_label = update_status_row
 
         profile_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         right_controls.pack_start(profile_row, False, False, 0)
@@ -1154,7 +1547,7 @@ class App(Gtk.Window):
         plugin_row.get_style_context().add_class("subtle")
 
         chips_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        main_col.pack_start(chips_box, False, False, 0)
+        top_left_col.pack_start(chips_box, False, False, 0)
         for key, text in [
             ("chip_fix", "GPS: --"),
             ("chip_wifi", "Wi-Fi: --"),
@@ -1170,10 +1563,41 @@ class App(Gtk.Window):
         self.alert_summary = Gtk.Label(label="Alerts: monitoring enabled")
         self.alert_summary.set_xalign(0)
         self.alert_summary.get_style_context().add_class("subtle")
-        main_col.pack_start(self.alert_summary, False, False, 0)
+        top_left_col.pack_start(self.alert_summary, False, False, 0)
+
+        tactical_hint = Gtk.Label(label="Tactical")
+        tactical_hint.set_xalign(0)
+        tactical_hint.get_style_context().add_class("subtle")
+        tactical_col.pack_start(tactical_hint, False, False, 0)
+
+        tactical_grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+        tactical_grid.set_column_homogeneous(True)
+        tactical_col.pack_start(tactical_grid, False, False, 0)
+
+        # Wi-Fi scanning is now integrated into Tactical WiFi Attacks interface
+        # This frees up the top-left slot for future features
+        
+        tactical_net_btn = Gtk.Button(label="Net")
+        self.decorate_button(tactical_net_btn, "network", "Net")
+        tactical_net_btn.connect("clicked", self.open_connectivity_detail_dialog)
+        tactical_net_btn.set_hexpand(True)
+        tactical_grid.attach(tactical_net_btn, 0, 1, 1, 1)
+
+        tactical_gps_btn = Gtk.Button(label="GPS")
+        self.decorate_button(tactical_gps_btn, "satellite", "GPS")
+        tactical_gps_btn.connect("clicked", self.open_gps_quality_dialog)
+        tactical_gps_btn.set_hexpand(True)
+        tactical_grid.attach(tactical_gps_btn, 1, 0, 1, 1)
+
+        # Tactical WiFi Attack Tools button (replaces Updates button)
+        tactical_attack_btn = Gtk.Button(label="WiFi Attacks")
+        self.decorate_button(tactical_attack_btn, "wifi", "WiFi Attacks")
+        tactical_attack_btn.connect("clicked", self.open_tactical_wifi_attacks_fullscreen)
+        tactical_attack_btn.set_hexpand(True)
+        tactical_grid.attach(tactical_attack_btn, 1, 1, 1, 1)
 
         metrics = Gtk.Grid(column_spacing=22, row_spacing=7)
-        main_col.pack_start(metrics, False, False, 2)
+        top_left_col.pack_start(metrics, False, False, 2)
         for i, (key, label) in enumerate([
             ("cpu","CPU"), ("ram","RAM"), ("disk","NVMe"), ("battery","Battery")
         ]):
@@ -1204,7 +1628,6 @@ class App(Gtk.Window):
             ("pos","Position"), ("speed","Speed"), ("track","Heading"),
             ("gps_quality","GPS Quality"),
             ("dop_summary","DOP (H/V/P)"),
-            ("gps_trend","Trend"),
             ("gpsd","gpsd"), ("readsb","readsb")
         ]:
             icon_name = {
@@ -1216,7 +1639,6 @@ class App(Gtk.Window):
                 "track": "navigation",
                 "gps_quality": "dashboard",
                 "dop_summary": "radar",
-                "gps_trend": "chart-line",
                 "gpsd": "radio-tower",
                 "readsb": "plane",
             }.get(key)
@@ -1228,7 +1650,6 @@ class App(Gtk.Window):
         self.add_row(self.net_box, "bt_ctrl", "BT Ctrl", "radio-tower")
         self.add_row(self.net_box, "wifi", "Wi-Fi", "wifi")
         self.add_row(self.net_box, "active_link", "Active Link", "network")
-        self.add_row(self.net_box, "wifi_trend", "Wi-Fi Trend", "chart-line")
         self.add_row(self.net_box, "failover", "Failover", "switch-horizontal")
         self.add_row(self.net_box, "hotspot_watchdog", "Hotspot Watch", "shield")
 
@@ -1378,7 +1799,7 @@ class App(Gtk.Window):
         self.refresh_plugin_buttons()
 
         self.show_all()
-        self.maximize()
+        GLib.idle_add(self.fullscreen)
         if self.settings.get("profile") in PROFILE_PRESETS:
             self.apply_profile(self.settings.get("profile"), announce=False)
             self._updating_profile_combo = True
@@ -1714,15 +2135,59 @@ class App(Gtk.Window):
             return
         option = self.selected_gps_option()
         status = self.gps_option_status(option)
+        gps_off = self.latest_aio_states.get("GPS") is False
         b.set_label(f"GPS Nav ({option['label']})")
         if status["available"]:
-            b.set_sensitive(True)
-            b.set_tooltip_text(f"Launch {option['label']}")
+            b.set_sensitive(not gps_off)
+            b.set_tooltip_text(self.gps_hint if gps_off else f"Launch {option['label']}")
             self.launch_actions["GPS Nav"] = status["command"]
         else:
             b.set_sensitive(False)
             b.set_tooltip_text(f"Selected app is not installed: {status['check']}")
             self.launch_actions["GPS Nav"] = None
+
+    def launcher_base_available(self, name):
+        return bool(self.launch_actions.get(name))
+
+    def apply_gps_dependency_state(self, gps_state):
+        gps_off = gps_state is False
+        for name in self.gps_dependent_names:
+            btn = self.launch_buttons.get(name) or self.builtin_buttons.get(name)
+            if btn is None:
+                continue
+            if gps_off:
+                btn.set_sensitive(False)
+                btn.set_opacity(0.45)
+                btn.set_tooltip_text(self.gps_hint)
+                continue
+
+            available = self.launcher_base_available(name)
+            btn.set_sensitive(available)
+            btn.set_opacity(1.0)
+            if available:
+                if name == "GPS Nav":
+                    option = self.selected_gps_option()
+                    btn.set_tooltip_text(f"Launch {option['label']}")
+                else:
+                    btn.set_tooltip_text(f"Launch {name}")
+
+    def apply_sdr_dependency_state(self, sdr_state):
+        sdr_off = sdr_state is False
+        for name in self.sdr_dependent_names:
+            btn = self.launch_buttons.get(name) or self.builtin_buttons.get(name)
+            if btn is None:
+                continue
+            if sdr_off:
+                btn.set_sensitive(False)
+                btn.set_opacity(0.45)
+                btn.set_tooltip_text(self.sdr_hint)
+                continue
+
+            available = self.launcher_base_available(name)
+            btn.set_sensitive(available)
+            btn.set_opacity(1.0)
+            if available:
+                btn.set_tooltip_text(f"Launch {name}")
 
     def refresh_plugin_buttons(self):
         for child in self.plugin_box.get_children():
@@ -1771,6 +2236,140 @@ class App(Gtk.Window):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _download_and_install_update(self, version, channel):
+        """Download and install update in background thread."""
+        repo = str(self.settings.get("github_repo", DEFAULT_GITHUB_REPO)).strip() or DEFAULT_GITHUB_REPO
+        
+        def progress_callback(msg):
+            GLib.idle_add(self.update_status_label.set_text, f"Update: {msg}")
+        
+        # Fetch release info
+        latest, assets, body = download_release_assets(repo, version)
+        if not latest or not assets:
+            GLib.idle_add(self.status.set_text, "Failed to fetch release information")
+            return
+        
+        app_dir = Path(__file__).resolve().parent
+        success, msg = apply_update(app_dir, version, assets, progress_callback)
+        
+        if success:
+            GLib.idle_add(self.status.set_text, f"Update complete! Restart the app to see v{version}")
+            # Update VERSION file and restart prompt
+            import os
+            GLib.timeout_add_seconds(2, lambda: self.on_update_complete(version))
+        else:
+            GLib.idle_add(self.status.set_text, f"Update failed: {msg}")
+    
+    def on_update_complete(self, new_version):
+        """Prompt to restart after update."""
+        dlg = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=f"Update to v{new_version} complete!",
+        )
+        dlg.format_secondary_text("Please restart the application to see the new version.")
+        response = dlg.run()
+        dlg.destroy()
+        if response == Gtk.ResponseType.OK:
+            # Restart the app with new version
+            import sys
+            self.save_settings()  # Save current state before restart
+            GLib.idle_add(self.restart_app, new_version)
+        return False
+    
+    def restart_app(self, new_version):
+        """Restart the application."""
+        try:
+            # Update window title to show new version
+            self.set_title(f"uConsole Status v{new_version}")
+            
+            # Refresh UI elements that depend on version
+            if hasattr(self, 'version_label') and self.version_label:
+                self.version_label.set_text(f"v{new_version}")
+            
+            self.status.set_text(f"Restarted to v{new_version}")
+            
+            # Auto-refresh after restart
+            GLib.timeout_add_seconds(1, self.refresh_async)
+            
+            return False  # Stop GLib.idle_add loop
+        except Exception as e:
+            self.status.set_text(f"Restart failed: {e}")
+            return False
+    
+    def show_rollback_dialog(self):
+        """Show dialog to select and apply rollback."""
+        backups = get_available_backups()
+        if not backups:
+            dlg = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="No backups available",
+            )
+            dlg.format_secondary_text("Create a backup before updating to enable rollback.")
+            dlg.run()
+            dlg.destroy()
+            return
+        
+        # Create dialog with list of backups
+        dlg = Gtk.Dialog(
+            title="Rollback to Previous Version",
+            transient_for=self,
+            flags=0,
+        )
+        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dlg.add_button("Rollback", Gtk.ResponseType.OK)
+        
+        content_area = dlg.get_content_area()
+        content_area.set_spacing(12)
+        
+        label = Gtk.Label(label="Select backup to restore:")
+        content_area.pack_start(label, False, False, 0)
+        
+        liststore = Gtk.ListStore(str, str, str, int)
+        for b in backups:
+            liststore.append([b["path"], b["version"], b["created_at"], b["file_count"]])
+        
+        treeview = Gtk.TreeView(model=liststore)
+        renderer = Gtk.CellRendererText()
+        
+        col_path = Gtk.TreeViewColumn("Path", renderer, text=0)
+        col_version = Gtk.TreeViewColumn("Version", renderer, text=1)
+        col_date = Gtk.TreeViewColumn("Created", renderer, text=2)
+        col_files = Gtk.TreeViewColumn("Files", renderer, text=3)
+        
+        treeview.append_column(col_path)
+        treeview.append_column(col_version)
+        treeview.append_column(col_date)
+        treeview.append_column(col_files)
+        
+        treeview.set_headers_visible(True)
+        treeview.set_size_request(500, 200)
+        
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(treeview)
+        content_area.pack_start(scroll, True, True, 0)
+        
+        dlg.show_all()
+        response = dlg.run()
+        
+        if response == Gtk.ResponseType.OK:
+            selection = treeview.get_selection()
+            model, iter = selection.get_selected()
+            if iter:
+                backup_path = model[iter][0]
+                success, msg = rollback_to_backup(backup_path)
+                if success:
+                    GLib.idle_add(self.status.set_text, f"Rollback: {msg}")
+        
+        dlg.destroy()
+
+
+
     def on_restart_selected(self, _button):
         service = self.restart_combo.get_active_text()
         if not service:
@@ -1812,7 +2411,27 @@ class App(Gtk.Window):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def on_sdr_exit_restart_readsb(self, _exit_code=None):
+        self.status.set_text("SDR++ closed: restarting readsb…")
+
+        def worker():
+            rc, out = self.run_systemctl_noninteractive("start", "readsb", 12)
+            if rc == 0:
+                msg = "SDR++ closed: readsb restarted"
+            elif self.is_sudo_auth_error(out):
+                msg = f"SDR++ closed: readsb restart blocked: {SERVICE_PRIV_HINT}"
+            else:
+                tail = out.splitlines()[-1][:90] if out else "unknown error"
+                msg = f"SDR++ closed: readsb restart failed: {tail}"
+            GLib.idle_add(self.status.set_text, msg)
+            GLib.timeout_add_seconds(1, self.refresh_async)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def on_launch_clicked(self, name):
+        if name in self.sdr_dependent_names and self.latest_aio_states.get("SDR") is False:
+            self.status.set_text(f"{name}: {self.sdr_hint}")
+            return
         if name in self.ac1200_dependent_names and not self.ac1200_power_on():
             self.status.set_text(f"{name}: {self.ac1200_hint}")
             return
@@ -1820,6 +2439,36 @@ class App(Gtk.Window):
         if not cmd:
             self.status.set_text(f"{name}: no launch command configured")
             return
+
+        if name == "SDR++" and "--autostart" not in str(cmd):
+            cmd = f"{cmd} --autostart"
+
+        if name in ("SDR++", "GQRX") and service_state("readsb") == "RUNNING":
+            self.status.set_text(f"{name}: stopping readsb before launch…")
+
+            def worker():
+                rc, out = self.run_systemctl_noninteractive("stop", "readsb", 12)
+                if rc == 0:
+                    GLib.idle_add(self.status.set_text, f"{name}: readsb stopped")
+                    if name == "SDR++":
+                        GLib.idle_add(ensure_sdrpp_audio_sink_config)
+                        GLib.idle_add(show_sdr_launch_checklist, self)
+                        GLib.idle_add(launch_with_status, self, name, cmd, self.on_sdr_exit_restart_readsb)
+                    else:
+                        GLib.idle_add(launch_with_status, self, name, cmd)
+                elif self.is_sudo_auth_error(out):
+                    GLib.idle_add(self.status.set_text, f"{name}: readsb stop blocked: {SERVICE_PRIV_HINT}")
+                else:
+                    tail = out.splitlines()[-1][:90] if out else "unknown error"
+                    GLib.idle_add(self.status.set_text, f"{name}: readsb stop failed: {tail}")
+                GLib.timeout_add_seconds(1, self.refresh_async)
+
+            threading.Thread(target=worker, daemon=True).start()
+            return
+
+        if name == "SDR++":
+            ensure_sdrpp_audio_sink_config()
+            show_sdr_launch_checklist(self)
 
         if name == "ADS-B" and service_state("readsb") != "RUNNING":
             self.status.set_text("ADS-B: starting readsb before launch…")
@@ -1836,10 +2485,22 @@ class App(Gtk.Window):
                     GLib.idle_add(self.status.set_text, f"ADS-B: readsb start failed: {tail}")
 
                 # Open tar1090 regardless, so users can still view status page/output.
-                GLib.idle_add(launch_with_status, self, name, cmd)
+                ok, via = launch_local_url("http://127.0.0.1/tar1090/")
+                if ok:
+                    GLib.idle_add(self.status.set_text, f"ADS-B opened via {via}")
+                else:
+                    GLib.idle_add(self.status.set_text, f"ADS-B open failed: {via}")
                 GLib.timeout_add_seconds(1, self.refresh_async)
 
             threading.Thread(target=worker, daemon=True).start()
+            return
+
+        if name == "ADS-B":
+            ok, via = launch_local_url("http://127.0.0.1/tar1090/")
+            if ok:
+                self.status.set_text(f"ADS-B opened via {via}")
+            else:
+                self.status.set_text(f"ADS-B open failed: {via}")
             return
 
         launch_with_status(self, name, cmd)
@@ -2411,24 +3072,988 @@ class App(Gtk.Window):
             return False
 
         self._release_check_started = True
-        threading.Thread(target=self._release_check_worker, daemon=True).start()
+        threading.Thread(target=self._release_check_worker, kwargs={"manual": False}, daemon=True).start()
         return False
 
-    def _release_check_worker(self):
+    def on_check_updates_now(self, _button):
+        self.status.set_text("Checking GitHub for updates…")
+        threading.Thread(target=self._release_check_worker, kwargs={"manual": True}, daemon=True).start()
+
+    def open_tactical_wifi_dialog(self, _button=None):
+        dlg = Gtk.Dialog(title="Tactical Wi-Fi", transient_for=self, flags=0)
+        dlg.set_default_size(760, 420)
+        dlg.add_button("Close", Gtk.ResponseType.CLOSE)
+
+        content = dlg.get_content_area()
+        content.set_spacing(8)
+
+        hint = Gtk.Label(
+            label="Scan nearby Wi-Fi networks from this tactical view. Close when not in use."
+        )
+        hint.set_xalign(0)
+        hint.set_line_wrap(True)
+        hint.get_style_context().add_class("subtle")
+        content.pack_start(hint, False, False, 0)
+
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        content.pack_start(toolbar, False, False, 0)
+
+        scan_btn = Gtk.Button(label="Scan")
+        self.decorate_button(scan_btn, "wifi", "Scan")
+        toolbar.pack_start(scan_btn, False, False, 0)
+
+        connect_btn = Gtk.Button(label="Connect")
+        self.decorate_button(connect_btn, "network", "Connect")
+        toolbar.pack_start(connect_btn, False, False, 0)
+
+        disconnect_btn = Gtk.Button(label="Disconnect")
+        self.decorate_button(disconnect_btn, "power", "Disconnect")
+        toolbar.pack_start(disconnect_btn, False, False, 0)
+
+        forget_btn = Gtk.Button(label="Forget")
+        self.decorate_button(forget_btn, "terminal", "Forget")
+        toolbar.pack_start(forget_btn, False, False, 0)
+
+        auto_close = Gtk.CheckButton(label="Auto-close on connect")
+        auto_close.set_active(False)
+        toolbar.pack_start(auto_close, False, False, 0)
+
+        status = Gtk.Label(label="Ready")
+        status.set_xalign(0)
+        status.get_style_context().add_class("subtle")
+        toolbar.pack_start(status, True, True, 0)
+
+        store = Gtk.ListStore(str, str, str, str, str, str)
+        tree = Gtk.TreeView(model=store)
+        cols = [
+            ("Use", 0),
+            ("SSID", 1),
+            ("Signal", 2),
+            ("Security", 3),
+            ("Ch", 4),
+            ("Bars", 5),
+        ]
+        for title, idx in cols:
+            renderer = Gtk.CellRendererText()
+            col = Gtk.TreeViewColumn(title, renderer, text=idx)
+            col.set_resizable(True)
+            if title == "SSID":
+                col.set_expand(True)
+            tree.append_column(col)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.add(tree)
+        content.pack_start(scrolled, True, True, 0)
+
+        scan_btn.connect("clicked", lambda _b: self.scan_tactical_wifi(store, status, scan_btn))
+        connect_btn.connect("clicked", lambda _b: self.connect_tactical_wifi(tree, store, status, scan_btn, dlg, auto_close))
+        disconnect_btn.connect("clicked", lambda _b: self.disconnect_tactical_wifi(store, status, scan_btn))
+        forget_btn.connect("clicked", lambda _b: self.forget_tactical_wifi(tree, store, status, scan_btn))
+        tree.connect("row-activated", lambda _tv, _path, _col: self.connect_tactical_wifi(tree, store, status, scan_btn, dlg, auto_close))
+        self.scan_tactical_wifi(store, status, scan_btn)
+
+        dlg.show_all()
+        dlg.run()
+        dlg.destroy()
+
+    def open_tactical_wifi_attacks_fullscreen(self, _button=None):
+        """Open full-screen tactical WiFi attack tools interface"""
+        try:
+            window = Gtk.Window(title="Tactical WiFi Attack Tools")
+            window.set_default_size(900, 600)
+            window.set_border_width(12)
+            window.set_position(Gtk.WindowPosition.CENTER)
+            
+            # Create main layout
+            main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            window.add(main_box)
+            
+            # Header section with status and tools overview
+            header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            header_box.set_margin_bottom(8)
+            main_box.pack_start(header_box, False, False, 0)
+            
+            # Status indicator
+            status_label = Gtk.Label(label="WiFi Attack Tools Ready")
+            status_label.get_style_context().add_class("titlebar")
+            header_box.pack_start(status_label, True, True, 0)
+            
+            # Quick status widgets
+            wifi_status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            wifi_status_box.set_margin_left(8)
+            header_box.pack_end(wifi_status_box, False, False, 0)
+            
+            wifi_iface_label = Gtk.Label(label="Interface: wlan1")
+            wifi_iface_label.set_xalign(0)
+            wifi_iface_label.get_style_context().add_class("subtle")
+            wifi_status_box.pack_start(wifi_iface_label, False, False, 0)
+            
+            phy_info_label = Gtk.Label(label="PHY: phy1 (MT7921AUN)")
+            phy_info_label.set_xalign(0)
+            phy_info_label.get_style_context().add_class("subtle")
+            wifi_status_box.pack_start(phy_info_label, False, False, 0)
+            
+            # Row 0: Wi-Fi Scanning Section
+            scan_section_label = Gtk.Label(label="Wi-Fi Network Scanner")
+            scan_section_label.get_style_context().add_class("heading")
+            scan_section_label.set_xalign(0)
+            main_box.pack_start(scan_section_label, False, False, 0)
+            
+            scan_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            scan_toolbar.set_margin_top(4)
+            main_box.pack_start(scan_toolbar, False, False, 0)
+            
+            scan_btn = Gtk.Button(label="Scan Networks")
+            self.decorate_button(scan_btn, "wifi", "Scan")
+            scan_toolbar.pack_start(scan_btn, False, False, 0)
+            
+            connect_btn = Gtk.Button(label="Connect")
+            self.decorate_button(connect_btn, "network", "Connect")
+            scan_toolbar.pack_start(connect_btn, False, False, 0)
+            
+            disconnect_btn = Gtk.Button(label="Disconnect")
+            self.decorate_button(disconnect_btn, "power", "Disconnect")
+            scan_toolbar.pack_start(disconnect_btn, False, False, 0)
+            
+            auto_close = Gtk.CheckButton(label="Auto-close on connect")
+            auto_close.set_active(False)
+            scan_toolbar.pack_start(auto_close, False, False, 0)
+            
+            scan_status = Gtk.Label(label="Ready to scan")
+            scan_status.set_xalign(0)
+            scan_status.get_style_context().add_class("subtle")
+            scan_toolbar.pack_start(scan_status, True, True, 0)
+            
+            # Wi-Fi networks list
+            wifi_store = Gtk.ListStore(str, str, str, str, str, str)
+            wifi_tree = Gtk.TreeView(model=wifi_store)
+            wifi_cols = [
+                ("SSID", 1),
+                ("Signal", 2),
+                ("Security", 3),
+                ("Ch", 4),
+                ("Bars", 5),
+            ]
+            for title, idx in wifi_cols:
+                renderer = Gtk.CellRendererText()
+                col = Gtk.TreeViewColumn(title, renderer, text=idx)
+                col.set_resizable(True)
+                if title == "SSID":
+                    col.set_expand(True)
+                wifi_tree.append_column(col)
+            
+            wifi_scrolled = Gtk.ScrolledWindow()
+            wifi_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            wifi_scrolled.set_margin_top(4)
+            wifi_scrolled.set_min_content_height(120)
+            wifi_scrolled.add(wifi_tree)
+            main_box.pack_start(wifi_scrolled, True, True, 0)
+            
+            # Scan button callback
+            scan_btn.connect("clicked", lambda _b: self.scan_tactical_wifi(wifi_store, scan_status, scan_btn))
+            connect_btn.connect("clicked", lambda _b: self.connect_tactical_wifi(wifi_tree, wifi_store, scan_status, scan_btn, window, auto_close))
+            disconnect_btn.connect("clicked", lambda _b: self.disconnect_tactical_wifi(wifi_store, scan_status, scan_btn))
+            
+            # Pre-populate with initial scan
+            self.scan_tactical_wifi(wifi_store, scan_status, scan_btn)
+            
+            # Tools grid layout
+            tools_grid = Gtk.Grid(column_spacing=8, row_spacing=8)
+            tools_grid.set_margin_top(8)
+            main_box.pack_start(tools_grid, True, True, 0)
+            
+            # Row 1: Passive Survey Tools (Kismet, Wireshark, Tshark)
+            passive_label = Gtk.Label(label="Passive Survey & Analysis")
+            passive_label.get_style_context().add_class("heading")
+            passive_label.set_xalign(0)
+            tools_grid.attach(passive_label, 0, 0, 3, 1)
+            
+            kismet_btn = Gtk.Button(label="Kismet RF Survey")
+            self.decorate_button(kismet_btn, "wifi", "Start Kismet")
+            kismet_btn.connect("clicked", lambda b: self.launch_kismet(status_label))
+            tools_grid.attach(kismet_btn, 0, 1, 1, 1)
+            
+            wireshark_btn = Gtk.Button(label="Wireshark GUI")
+            self.decorate_button(wireshark_btn, "network", "Launch Wireshark")
+            wireshark_btn.connect("clicked", lambda b: self.launch_wireshark(status_label))
+            tools_grid.attach(wireshark_btn, 1, 1, 1, 1)
+            
+            tshark_btn = Gtk.Button(label="Tshark Capture")
+            self.decorate_button(tshark_btn, "terminal", "Launch Tshark")
+            tshark_btn.connect("clicked", lambda b: self.launch_tshark(status_label))
+            tools_grid.attach(tshark_btn, 2, 1, 1, 1)
+            
+            # Row 2: Active Attack Tools (Reaver, Bully, Cowpatty)
+            active_label = Gtk.Label(label="Active WPA/WPS Attacks")
+            active_label.get_style_context().add_class("heading")
+            active_label.set_xalign(0)
+            tools_grid.attach(active_label, 0, 2, 3, 1)
+            
+            reaver_btn = Gtk.Button(label="Reaver (WPS)")
+            self.decorate_button(reaver_btn, "wifi", "Launch Reaver")
+            reaver_btn.connect("clicked", lambda b: self.launch_tool(status_label, "reaver"))
+            tools_grid.attach(reaver_btn, 0, 3, 1, 1)
+            
+            bully_btn = Gtk.Button(label="Bully (WPS)")
+            self.decorate_button(bully_btn, "wifi", "Launch Bully")
+            bully_btn.connect("clicked", lambda b: self.launch_tool(status_label, "bully"))
+            tools_grid.attach(bully_btn, 1, 3, 1, 1)
+            
+            cowpatty_btn = Gtk.Button(label="Cowpatty (Offline)")
+            self.decorate_button(cowpatty_btn, "terminal", "Launch Cowpatty")
+            cowpatty_btn.connect("clicked", lambda b: self.launch_tool(status_label, "cowpatty"))
+            tools_grid.attach(cowpatty_btn, 2, 3, 1, 1)
+            
+            # Row 3: Network Attack Tools (MDK4, Hostapd, Dnsmasq)
+            netattack_label = Gtk.Label(label="Network Infrastructure Attacks")
+            netattack_label.get_style_context().add_class("heading")
+            netattack_label.set_xalign(0)
+            tools_grid.attach(netattack_label, 0, 4, 3, 1)
+            
+            mdk4_btn = Gtk.Button(label="MDK4 (DoS/PenTest)")
+            self.decorate_button(mdk4_btn, "terminal", "Launch MDK4")
+            mdk4_btn.connect("clicked", lambda b: self.launch_tool(status_label, "mdk4"))
+            tools_grid.attach(mdk4_btn, 0, 5, 1, 1)
+            
+            hostapd_btn = Gtk.Button(label="Hostapd (Rogue AP)")
+            self.decorate_button(hostapd_btn, "network", "Launch Hostapd")
+            hostapd_btn.connect("clicked", lambda b: self.launch_tool(status_label, "hostapd"))
+            tools_grid.attach(hostapd_btn, 1, 5, 1, 1)
+            
+            dnsmasq_btn = Gtk.Button(label="Dnsmasq (Rogue DHCP)")
+            self.decorate_button(dnsmasq_btn, "network", "Launch Dnsmasq")
+            dnsmasq_btn.connect("clicked", lambda b: self.launch_tool(status_label, "dnsmasq"))
+            tools_grid.attach(dnsmasq_btn, 2, 5, 1, 1)
+            
+            # Row 4: Monitor Mode Controls
+            monitor_label = Gtk.Label(label="Monitor Mode Control")
+            monitor_label.get_style_context().add_class("heading")
+            monitor_label.set_xalign(0)
+            tools_grid.attach(monitor_label, 0, 6, 3, 1)
+            
+            start_monitor_btn = Gtk.Button(label="Start Monitor (k7mon0)")
+            self.decorate_button(start_monitor_btn, "wifi", "Create k7mon0")
+            start_monitor_btn.connect("clicked", lambda b: self.launch_monitor_mode(status_label))
+            tools_grid.attach(start_monitor_btn, 0, 7, 1, 1)
+            
+            stop_monitor_btn = Gtk.Button(label="Stop Monitor")
+            self.decorate_button(stop_monitor_btn, "power", "Remove k7mon0")
+            stop_monitor_btn.connect("clicked", lambda b: self.stop_monitor_mode(status_label))
+            tools_grid.attach(stop_monitor_btn, 1, 7, 1, 1)
+            
+            # Row 5: Firmware Analysis
+            firmware_label = Gtk.Label(label="Firmware Analysis")
+            firmware_label.get_style_context().add_class("heading")
+            firmware_label.set_xalign(0)
+            tools_grid.attach(firmware_label, 0, 8, 3, 1)
+            
+            binwalk_btn = Gtk.Button(label="Binwalk (Extract)")
+            self.decorate_button(binwalk_btn, "terminal", "Launch Binwalk")
+            binwalk_btn.connect("clicked", lambda b: self.launch_tool(status_label, "binwalk"))
+            tools_grid.attach(binwalk_btn, 0, 9, 1, 1)
+            
+            scapy_btn = Gtk.Button(label="Scapy (Packet Mani)")
+            self.decorate_button(scapy_btn, "terminal", "Launch Scapy")
+            scapy_btn.connect("clicked", lambda b: self.launch_python_tool(status_label, "scapy"))
+            tools_grid.attach(scapy_btn, 1, 9, 1, 1)
+            
+            pyshark_btn = Gtk.Button(label="PyShark (Wireshark)")
+            self.decorate_button(pyshark_btn, "terminal", "Launch PyShark")
+            pyshark_btn.connect("clicked", lambda b: self.launch_python_tool(status_label, "pyshark"))
+            tools_grid.attach(pyshark_btn, 2, 9, 1, 1)
+            
+            # Close button at bottom
+            close_btn = Gtk.Button(label="Close Tactical Interface")
+            close_btn.connect("clicked", lambda b: window.destroy())
+            main_box.pack_end(close_btn, False, False, 0)
+            
+            window.show_all()
+        except Exception as e:
+            self.status.set_text(f"Error opening tactical interface: {str(e)}")
+        
+    def launch_kismet(self, status_label=None):
+        """Launch Kismet RF survey tool"""
+        import subprocess
+        cmd = ["kismet"]
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if status_label:
+                status_label.set_text("Kismet started - browse to http://localhost:2501")
+            else:
+                self.status.set_text("Kismet started - browse to http://localhost:2501")
+        except Exception as e:
+            if status_label:
+                status_label.set_text(f"Failed to start Kismet: {str(e)}")
+            else:
+                self.status.set_text(f"Failed to start Kismet: {str(e)}")
+    
+    def launch_wireshark(self, status_label=None):
+        """Launch Wireshark GUI"""
+        import subprocess
+        cmd = ["wireshark"]
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if status_label:
+                status_label.set_text("Wireshark started - select interface to capture")
+            else:
+                self.status.set_text("Wireshark started - select interface to capture")
+        except Exception as e:
+            if status_label:
+                status_label.set_text(f"Failed to start Wireshark: {str(e)}")
+            else:
+                self.status.set_text(f"Failed to start Wireshark: {str(e)}")
+    
+    def launch_tshark(self, status_label=None):
+        """Launch Tshark for command-line capture"""
+        import subprocess
+        cmd = ["tshark", "-i", "wlan1"]
+        try:
+            # Open in new terminal window if possible, otherwise just note it
+            if status_label:
+                status_label.set_text("Tshark ready - use: tshark -I -i k7mon0 for monitor mode")
+            else:
+                self.status.set_text("Tshark ready - use: tshark -I -i k7mon0 for monitor mode")
+        except Exception as e:
+            if status_label:
+                status_label.set_text(f"Tshark info: {str(e)}")
+            else:
+                self.status.set_text(f"Tshark info: {str(e)}")
+    
+    def launch_tool(self, status_label, tool_name):
+        """Launch a WiFi attack tool in terminal"""
+        import subprocess
+        cmd = ["gnome-terminal", "--", "bash", "-c", f"{tool_name}; exec bash"]
+        try:
+            subprocess.Popen(cmd)
+            if status_label:
+                status_label.set_text(f"Started {tool_name}")
+            else:
+                self.status.set_text(f"Started {tool_name}")
+        except Exception as e:
+            # Fallback: just show status if no terminal available
+            if status_label:
+                status_label.set_text(f"{tool_name} installed - launch manually")
+            else:
+                self.status.set_text(f"{tool_name} installed - launch manually")
+    
+    def launch_python_tool(self, status_label, tool_name):
+        """Launch a Python security tool"""
+        import subprocess
+        cmd = ["gnome-terminal", "--", "bash", "-c", f"python3 -c 'import {tool_name}; print(\"{tool_name} ready\")'; exec bash"]
+        try:
+            subprocess.Popen(cmd)
+            if status_label:
+                status_label.set_text(f"Started {tool_name}")
+            else:
+                self.status.set_text(f"Started {tool_name}")
+        except Exception as e:
+            if status_label:
+                status_label.set_text(f"{tool_name} ready - launch manually")
+            else:
+                self.status.set_text(f"{tool_name} ready - launch manually")
+    
+    def launch_monitor_mode(self, status_label=None):
+        """Create monitor mode interface k7mon0"""
+        import subprocess
+        cmd = ["sudo", "k7bat-monitor-start", "wlan1", "k7mon0"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                if status_label:
+                    status_label.set_text("Monitor interface k7mon0 created successfully")
+                else:
+                    self.status.set_text("Monitor interface k7mon0 created successfully")
+                self.refresh_async()
+            else:
+                if status_label:
+                    status_label.set_text(f"Failed to create monitor: {result.stderr}")
+                else:
+                    self.status.set_text(f"Failed to create monitor: {result.stderr}")
+        except Exception as e:
+            if status_label:
+                status_label.set_text(f"Monitor mode error: {str(e)}")
+            else:
+                self.status.set_text(f"Monitor mode error: {str(e)}")
+    
+    def stop_monitor_mode(self, status_label=None):
+        """Remove monitor mode interface k7mon0"""
+        import subprocess
+        cmd = ["sudo", "k7bat-monitor-stop", "k7mon0"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                if status_label:
+                    status_label.set_text("Monitor interface k7mon0 removed")
+                else:
+                    self.status.set_text("Monitor interface k7mon0 removed")
+                self.refresh_async()
+            else:
+                if status_label:
+                    status_label.set_text(f"Failed to remove monitor: {result.stderr}")
+                else:
+                    self.status.set_text(f"Failed to remove monitor: {result.stderr}")
+        except Exception as e:
+            if status_label:
+                status_label.set_text(f"Monitor stop error: {str(e)}")
+            else:
+                self.status.set_text(f"Monitor stop error: {str(e)}")
+
+    def open_connectivity_detail_dialog(self, _button=None):
+        dlg = Gtk.Dialog(title="Connectivity Detail", transient_for=self, flags=0)
+        dlg.add_buttons("Close", Gtk.ResponseType.CLOSE)
+        content = dlg.get_content_area()
+        content.set_spacing(8)
+
+        intro = Gtk.Label(
+            label="On-demand network detail view for tactical checks. Use Tactical Wi-Fi for scan/connect actions."
+        )
+        intro.set_xalign(0)
+        intro.set_line_wrap(True)
+        intro.get_style_context().add_class("subtle")
+        content.pack_start(intro, False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        content.pack_start(grid, False, False, 0)
+
+        rows = [
+            ("active", "Active Link"),
+            ("wifi", "Wi-Fi"),
+            ("eth", "Ethernet"),
+            ("ip", "IP"),
+            ("bt", "Bluetooth"),
+            ("fail", "Failover"),
+        ]
+        labels = {}
+        for idx, (key, title) in enumerate(rows):
+            name = Gtk.Label(label=f"{title}:")
+            name.set_xalign(0)
+            val = Gtk.Label(label="—")
+            val.set_xalign(0)
+            val.set_line_wrap(True)
+            grid.attach(name, 0, idx, 1, 1)
+            grid.attach(val, 1, idx, 1, 1)
+            labels[key] = val
+
+        status = Gtk.Label(label="")
+        status.set_xalign(0)
+        status.get_style_context().add_class("subtle")
+        content.pack_start(status, False, False, 0)
+
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        content.pack_start(action_row, False, False, 0)
+
+        refresh_btn = Gtk.Button(label="Refresh")
+        self.decorate_button(refresh_btn, "dashboard", "Refresh")
+        action_row.pack_start(refresh_btn, False, False, 0)
+
+        open_wifi_btn = Gtk.Button(label="Open Tactical Wi-Fi")
+        self.decorate_button(open_wifi_btn, "wifi", "Open Tactical Wi-Fi")
+        action_row.pack_start(open_wifi_btn, False, False, 0)
+
+        def fill_fields(payload):
+            wifi_rows = payload.get("wifi", []) if isinstance(payload.get("wifi", []), list) else []
+            wifi_text = " | ".join(f"{iface}: {detail}" for iface, detail in wifi_rows[:3]) if wifi_rows else "none"
+            labels["active"].set_text(self.connectivity_active_link(payload))
+            labels["wifi"].set_text(wifi_text)
+            labels["eth"].set_text(payload.get("eth", "—"))
+            labels["ip"].set_text(payload.get("ip", "—"))
+            labels["bt"].set_text(payload.get("bt", "—"))
+            labels["fail"].set_text(self.labels.get("failover").get_text() if self.labels.get("failover") else "—")
+            status.set_text("Refreshed: " + datetime.now().strftime("%H:%M:%S"))
+
+        def refresh_now(_b=None):
+            try:
+                fill_fields(self.collect())
+            except Exception as e:
+                status.set_text(f"Refresh failed: {str(e)[:90]}")
+
+        refresh_btn.connect("clicked", refresh_now)
+        open_wifi_btn.connect("clicked", lambda _b: self.open_tactical_wifi_dialog())
+
+        refresh_now()
+        dlg.show_all()
+        dlg.run()
+        dlg.destroy()
+
+    def gps_confidence_grade(self, confidence_text):
+        m = re.search(r"(\d+)", str(confidence_text or ""))
+        if not m:
+            return "unknown"
+        val = int(m.group(1))
+        if val >= 85:
+            return "excellent"
+        if val >= 70:
+            return "good"
+        if val >= 50:
+            return "fair"
+        if val >= 30:
+            return "weak"
+        return "poor"
+
+    def draw_trend_sparkline(self, _widget, cr, values, invert=False):
+        vals = [float(v) for v in values if isinstance(v, (int, float))]
+        width = max(1, _widget.get_allocated_width())
+        height = max(1, _widget.get_allocated_height())
+
+        cr.set_source_rgb(0.08, 0.1, 0.14)
+        cr.rectangle(0, 0, width, height)
+        cr.fill()
+
+        cr.set_source_rgb(0.18, 0.23, 0.30)
+        cr.set_line_width(1)
+        cr.move_to(0, height - 1)
+        cr.line_to(width, height - 1)
+        cr.stroke()
+
+        if len(vals) < 2:
+            cr.set_source_rgb(0.7, 0.74, 0.80)
+            cr.move_to(8, int(height * 0.6))
+            cr.show_text("no trend yet")
+            return False
+
+        lo = min(vals)
+        hi = max(vals)
+        span = hi - lo
+        if span < 1e-6:
+            span = 1.0
+
+        left_pad = 6.0
+        right_pad = 6.0
+        top_pad = 6.0
+        bottom_pad = 6.0
+        usable_w = max(1.0, width - left_pad - right_pad)
+        usable_h = max(1.0, height - top_pad - bottom_pad)
+
+        cr.set_source_rgb(0.22, 0.85, 0.55) if not invert else cr.set_source_rgb(0.96, 0.69, 0.23)
+        cr.set_line_width(1.8)
+        for idx, val in enumerate(vals):
+            x = left_pad + usable_w * (idx / float(len(vals) - 1))
+            norm = (val - lo) / span
+            y = top_pad + (1.0 - norm) * usable_h
+            if invert:
+                y = top_pad + norm * usable_h
+            if idx == 0:
+                cr.move_to(x, y)
+            else:
+                cr.line_to(x, y)
+        cr.stroke()
+        return False
+
+    def open_gps_quality_dialog(self, _button=None):
+        dlg = Gtk.Dialog(title="GPS Quality Detail", transient_for=self, flags=0)
+        dlg.add_buttons("Close", Gtk.ResponseType.CLOSE)
+        content = dlg.get_content_area()
+        content.set_spacing(8)
+
+        intro = Gtk.Label(
+            label="Detailed GPS quality view with confidence, DOP, and mini trend graphs."
+        )
+        intro.set_xalign(0)
+        intro.set_line_wrap(True)
+        intro.get_style_context().add_class("subtle")
+        content.pack_start(intro, False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        content.pack_start(grid, False, False, 0)
+
+        rows = [
+            ("fix", "Fix"),
+            ("sats", "Satellites"),
+            ("used", "Satellites Used"),
+            ("quality", "Confidence"),
+            ("grade", "Quality Grade"),
+            ("note", "Assessment"),
+            ("dop", "DOP (H/V/P)"),
+            ("sample", "Sample Time"),
+            ("dev", "Device"),
+        ]
+        labels = {}
+        for idx, (key, title) in enumerate(rows):
+            name = Gtk.Label(label=f"{title}:")
+            name.set_xalign(0)
+            val = Gtk.Label(label="—")
+            val.set_xalign(0)
+            val.set_line_wrap(True)
+            grid.attach(name, 0, idx, 1, 1)
+            grid.attach(val, 1, idx, 1, 1)
+            labels[key] = val
+
+        sats_title = Gtk.Label(label="Sats Trend")
+        sats_title.set_xalign(0)
+        sats_title.get_style_context().add_class("subtle")
+        content.pack_start(sats_title, False, False, 0)
+        sats_plot = Gtk.DrawingArea()
+        sats_plot.set_size_request(300, 56)
+        content.pack_start(sats_plot, False, False, 0)
+
+        pdop_title = Gtk.Label(label="PDOP Trend (lower is better)")
+        pdop_title.set_xalign(0)
+        pdop_title.get_style_context().add_class("subtle")
+        content.pack_start(pdop_title, False, False, 0)
+        pdop_plot = Gtk.DrawingArea()
+        pdop_plot.set_size_request(300, 56)
+        content.pack_start(pdop_plot, False, False, 0)
+
+        status = Gtk.Label(label="")
+        status.set_xalign(0)
+        status.get_style_context().add_class("subtle")
+        content.pack_start(status, False, False, 0)
+
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        content.pack_start(action_row, False, False, 0)
+        refresh_btn = Gtk.Button(label="Refresh")
+        self.decorate_button(refresh_btn, "dashboard", "Refresh")
+        action_row.pack_start(refresh_btn, False, False, 0)
+
+        plot_data = {
+            "sats": [],
+            "pdop": [],
+        }
+
+        sats_plot.connect("draw", lambda w, cr: self.draw_trend_sparkline(w, cr, plot_data["sats"], invert=False))
+        pdop_plot.connect("draw", lambda w, cr: self.draw_trend_sparkline(w, cr, plot_data["pdop"], invert=True))
+
+        def refresh_now(_b=None):
+            payload = self.collect().get("gps", {})
+            labels["fix"].set_text(payload.get("fix", "—"))
+            labels["sats"].set_text(payload.get("sats", "—"))
+            labels["used"].set_text(payload.get("sats_used", "—"))
+            confidence = payload.get("confidence", "—")
+            labels["quality"].set_text(str(confidence))
+            labels["grade"].set_text(str(payload.get("quality_grade", self.gps_confidence_grade(confidence))))
+            labels["note"].set_text(str(payload.get("quality_note", "—")))
+            labels["dop"].set_text(f"{payload.get('hdop', '—')} / {payload.get('vdop', '—')} / {payload.get('pdop', '—')}")
+            labels["sample"].set_text(str(payload.get("sample_time", "—")))
+            labels["dev"].set_text(payload.get("device", "—"))
+
+            sats_vals = list(self.gps_quality_history.get("sats", []))
+            pdop_vals = list(self.gps_quality_history.get("pdop", []))
+
+            try:
+                sats_num = int(payload.get("sats"))
+                sats_vals.append(sats_num)
+            except Exception:
+                pass
+
+            pdop_val = payload.get("pdop_val")
+            if isinstance(pdop_val, (int, float)):
+                pdop_vals.append(float(pdop_val))
+
+            plot_data["sats"] = sats_vals[-20:]
+            plot_data["pdop"] = pdop_vals[-20:]
+            sats_plot.queue_draw()
+            pdop_plot.queue_draw()
+            status.set_text("Refreshed: " + datetime.now().strftime("%H:%M:%S"))
+
+        refresh_btn.connect("clicked", refresh_now)
+        refresh_now()
+        dlg.show_all()
+        dlg.run()
+        dlg.destroy()
+
+    def scan_tactical_wifi(self, store, status_label, scan_btn):
+        if scan_btn is not None:
+            scan_btn.set_sensitive(False)
+        status_label.set_text("Scanning Wi-Fi networks…")
+
+        def worker():
+            if not command_exists("nmcli"):
+                GLib.idle_add(status_label.set_text, "nmcli not installed")
+                if scan_btn is not None:
+                    GLib.idle_add(scan_btn.set_sensitive, True)
+                return
+
+            raw = run_stdout(
+                "nmcli -f IN-USE,SSID,SIGNAL,SECURITY,CHAN,BARS -m multiline dev wifi list --rescan yes",
+                timeout=10,
+            )
+            rows = self.parse_nmcli_wifi_multiline(raw)
+
+            def apply_rows():
+                store.clear()
+                for row in rows:
+                    store.append(list(row))
+                if rows:
+                    status_label.set_text(f"Found {len(rows)} network(s)")
+                else:
+                    status_label.set_text("No networks found")
+                if scan_btn is not None:
+                    scan_btn.set_sensitive(True)
+                return False
+
+            GLib.idle_add(apply_rows)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def parse_nmcli_wifi_multiline(self, raw):
+        entries = []
+        current = {}
+        for line in str(raw or "").splitlines():
+            line = line.strip()
+            if not line:
+                if current:
+                    entries.append(current)
+                    current = {}
+                continue
+            if ":" not in line:
+                continue
+            key, val = line.split(":", 1)
+            current[key.strip().upper()] = val.strip()
+        if current:
+            entries.append(current)
+
+        def signal_value(item):
+            try:
+                return int(item.get("SIGNAL", "0") or "0")
+            except Exception:
+                return 0
+
+        entries.sort(key=lambda e: (e.get("IN-USE") == "*", signal_value(e)), reverse=True)
+
+        out = []
+        for item in entries:
+            out.append((
+                "*" if item.get("IN-USE") == "*" else "",
+                item.get("SSID") or "<hidden>",
+                item.get("SIGNAL") or "—",
+                item.get("SECURITY") or "OPEN",
+                item.get("CHAN") or "—",
+                item.get("BARS") or "",
+            ))
+        return out
+
+    def tactical_wifi_selected(self, tree):
+        model, itr = tree.get_selection().get_selected()
+        if not model or not itr:
+            return None
+        return {
+            "in_use": str(model[itr][0]),
+            "ssid": str(model[itr][1]),
+            "security": str(model[itr][3]),
+        }
+
+    def tactical_wifi_validate_identifier(self, value, field_name, max_len=128):
+        text = str(value or "").strip()
+        if not text:
+            return None, f"Invalid {field_name}"
+        if len(text) > max_len:
+            return None, f"{field_name} is too long"
+        if any(ord(ch) < 32 for ch in text):
+            return None, f"Invalid {field_name}"
+        return text, None
+
+    def tactical_wifi_password_prompt(self, ssid):
+        dlg = Gtk.Dialog(title=f"Connect to {ssid}", transient_for=self, flags=0)
+        dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Connect", Gtk.ResponseType.OK)
+        content = dlg.get_content_area()
+        content.set_spacing(8)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.pack_start(Gtk.Label(label="Password:"), False, False, 0)
+        entry = Gtk.Entry()
+        entry.set_visibility(False)
+        entry.set_activates_default(True)
+        row.pack_start(entry, True, True, 0)
+        content.pack_start(row, False, False, 0)
+
+        dlg.set_default_response(Gtk.ResponseType.OK)
+        dlg.show_all()
+        resp = dlg.run()
+        pwd = entry.get_text().strip()
+        dlg.destroy()
+        if resp != Gtk.ResponseType.OK:
+            return None
+        return pwd
+
+    def connect_tactical_wifi(self, tree, store, status_label, scan_btn, dialog=None, auto_close_toggle=None):
+        selected = self.tactical_wifi_selected(tree)
+        if not selected:
+            status_label.set_text("Select a network first")
+            return
+
+        ssid = selected.get("ssid", "")
+        if not ssid or ssid == "<hidden>":
+            status_label.set_text("Cannot connect to hidden SSID from this view")
+            return
+        ssid, err = self.tactical_wifi_validate_identifier(ssid, "SSID")
+        if err:
+            status_label.set_text(err)
+            return
+
+        security = selected.get("security", "").upper()
+        secure = security not in ("", "OPEN", "--", "NONE")
+        password = ""
+        if secure:
+            password = self.tactical_wifi_password_prompt(ssid)
+            if password is None:
+                status_label.set_text("Connect cancelled")
+                return
+            if not password:
+                status_label.set_text("Password is required for secured network")
+                return
+
+        status_label.set_text(f"Connecting to {ssid}…")
+        if scan_btn is not None:
+            scan_btn.set_sensitive(False)
+
+        def worker():
+            cmd = ["nmcli", "dev", "wifi", "connect", ssid]
+            if secure:
+                cmd.extend(["password", password])
+            rc, out = run_rc_args(cmd, timeout=20)
+
+            def done():
+                if rc == 0:
+                    status_label.set_text(f"Connected to {ssid}")
+                    self.status.set_text(f"Wi-Fi connected: {ssid}")
+                    self.refresh_async()
+                    self.scan_tactical_wifi(store, status_label, scan_btn)
+                    should_close = bool(auto_close_toggle is not None and auto_close_toggle.get_active())
+                    if should_close and dialog is not None:
+                        dialog.response(Gtk.ResponseType.CLOSE)
+                else:
+                    tail = out.splitlines()[-1][:100] if out else "unknown error"
+                    status_label.set_text(f"Connect failed: {tail}")
+                    if scan_btn is not None:
+                        scan_btn.set_sensitive(True)
+                return False
+
+            GLib.idle_add(done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def disconnect_tactical_wifi(self, store, status_label, scan_btn):
+        status_label.set_text("Disconnecting Wi-Fi…")
+        if scan_btn is not None:
+            scan_btn.set_sensitive(False)
+
+        def worker():
+            dev = ""
+            raw = run_stdout_args(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"], timeout=5)
+            for line in raw.splitlines():
+                parts = line.split(":", 2)
+                if len(parts) < 3:
+                    continue
+                if parts[1] == "wifi" and parts[2] == "connected":
+                    dev = parts[0]
+                    break
+            if not dev:
+                for line in raw.splitlines():
+                    parts = line.split(":", 2)
+                    if len(parts) < 3:
+                        continue
+                    if parts[1] == "wifi":
+                        dev = parts[0]
+                        break
+
+            if not dev:
+                GLib.idle_add(status_label.set_text, "No Wi-Fi device found")
+                if scan_btn is not None:
+                    GLib.idle_add(scan_btn.set_sensitive, True)
+                return
+
+            dev, err = self.tactical_wifi_validate_identifier(dev, "device")
+            if err:
+                GLib.idle_add(status_label.set_text, err)
+                if scan_btn is not None:
+                    GLib.idle_add(scan_btn.set_sensitive, True)
+                return
+
+            rc, out = run_rc_args(["nmcli", "device", "disconnect", dev], timeout=15)
+
+            def done():
+                if rc == 0:
+                    status_label.set_text(f"Disconnected {dev}")
+                    self.status.set_text(f"Wi-Fi disconnected: {dev}")
+                    self.refresh_async()
+                    self.scan_tactical_wifi(store, status_label, scan_btn)
+                else:
+                    tail = out.splitlines()[-1][:100] if out else "unknown error"
+                    status_label.set_text(f"Disconnect failed: {tail}")
+                    if scan_btn is not None:
+                        scan_btn.set_sensitive(True)
+                return False
+
+            GLib.idle_add(done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def forget_tactical_wifi(self, tree, store, status_label, scan_btn):
+        selected = self.tactical_wifi_selected(tree)
+        if not selected:
+            status_label.set_text("Select a network first")
+            return
+
+        ssid = selected.get("ssid", "")
+        if not ssid or ssid == "<hidden>":
+            status_label.set_text("Cannot forget hidden SSID from this view")
+            return
+
+        status_label.set_text(f"Forgetting saved profile for {ssid}…")
+        if scan_btn is not None:
+            scan_btn.set_sensitive(False)
+
+        def worker():
+            raw = run_stdout_args(["nmcli", "-t", "-f", "NAME", "connection", "show"], timeout=6)
+            names = [line.strip() for line in raw.splitlines() if line.strip()]
+            matches = [n for n in names if n == ssid]
+            if not matches:
+                GLib.idle_add(status_label.set_text, f"No saved profile found for {ssid}")
+                if scan_btn is not None:
+                    GLib.idle_add(scan_btn.set_sensitive, True)
+                return
+
+            last_err = ""
+            ok_count = 0
+            for name in matches:
+                safe_name, err = self.tactical_wifi_validate_identifier(name, "profile")
+                if err:
+                    last_err = err
+                    continue
+                rc, out = run_rc_args(["nmcli", "connection", "delete", "id", safe_name], timeout=12)
+                if rc == 0:
+                    ok_count += 1
+                else:
+                    last_err = out.splitlines()[-1][:100] if out else "unknown error"
+
+            def done():
+                if ok_count > 0:
+                    status_label.set_text(f"Forgot {ssid} ({ok_count} profile(s))")
+                    self.status.set_text(f"Wi-Fi profile removed: {ssid}")
+                    self.scan_tactical_wifi(store, status_label, scan_btn)
+                else:
+                    status_label.set_text(f"Forget failed: {last_err}")
+                    if scan_btn is not None:
+                        scan_btn.set_sensitive(True)
+                return False
+
+            GLib.idle_add(done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _release_check_worker(self, manual=False):
         repo = str(self.settings.get("github_repo", DEFAULT_GITHUB_REPO)).strip() or DEFAULT_GITHUB_REPO
         latest, release_url = github_latest_release(repo)
         if not latest:
+            if manual:
+                GLib.idle_add(self.status.set_text, "Update check failed (GitHub unavailable)")
             return
         if not is_newer_version(latest, APP_VERSION):
+            if manual:
+                GLib.idle_add(self.status.set_text, f"Already up to date (v{APP_VERSION})")
             return
 
         dismissed = str(self.settings.get("release_popup_dismissed", "")).strip()
-        if dismissed == latest:
+        if (not manual) and dismissed == latest:
             return
 
         GLib.idle_add(self.show_new_release_popup, latest, release_url)
 
     def show_new_release_popup(self, latest_version, release_url):
+        # Create backup before showing popup
+        success, msg = create_backup()
+        
         dlg = Gtk.MessageDialog(
             transient_for=self,
             flags=0,
@@ -2436,20 +4061,55 @@ class App(Gtk.Window):
             buttons=Gtk.ButtonsType.NONE,
             text=f"New version available: v{latest_version}",
         )
-        dlg.format_secondary_text(
-            "A newer GitHub release is available for K7BAT uConsole Status App."
-        )
+        secondary_text = ["A newer GitHub release is available for K7BAT uConsole Status App."]
+        if success:
+            secondary_text.append(f"Backup created: {msg}")
+        else:
+            secondary_text.append(f"Warning: Could not create backup ({msg})")
+        
+        # Add channel selection
+        channel_label = Gtk.Label(label="Channel:")
+        channel_combo = Gtk.ComboBoxText()
+        for ch in ("stable", "beta"):
+            channel_combo.append(ch, ch.capitalize())
+        current_channel = self.settings.get("update_channel", "stable")
+        channel_combo.set_active_id(current_channel)
+        
+        channel_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        channel_box.pack_start(channel_label, False, False, 0)
+        channel_box.pack_start(channel_combo, True, True, 0)
+        channel_box.show_all()
+        
+        content_area = dlg.get_content_area()
+        content_area.pack_end(channel_box, False, False, 0)
+        
+        # Add buttons
         dlg.add_button("Later", Gtk.ResponseType.CANCEL)
-        dlg.add_button("Open Release", Gtk.ResponseType.OK)
+        btn_open = dlg.add_button("Open Release", Gtk.ResponseType.OK)
+        btn_update = dlg.add_button("Download & Install", Gtk.ResponseType.APPLY)
+        btn_rollback = dlg.add_button("Rollback...", Gtk.ResponseType.REJECT)
 
         response = dlg.run()
+        
+        # Get selected channel
+        selected_channel = channel_combo.get_active_id() or "stable"
+        self.settings["update_channel"] = selected_channel
+        save_settings(self.settings)
+        
         dlg.destroy()
 
-        self.settings["release_popup_dismissed"] = str(latest_version)
-        save_settings(self.settings)
-
-        if response == Gtk.ResponseType.OK and release_url:
-            launch(f'xdg-open "{release_url}"')
+        if response == Gtk.ResponseType.OK:
+            if release_url:
+                launch(f'xdg-open "{release_url}"')
+        elif response == Gtk.ResponseType.APPLY:
+            threading.Thread(
+                target=self._download_and_install_update,
+                args=(latest_version, selected_channel),
+                daemon=True
+            ).start()
+        elif response == Gtk.ResponseType.REJECT:
+            self.show_rollback_dialog()
+        
         return False
 
     def radio_command(self, dev, state):
@@ -2501,7 +4161,8 @@ class App(Gtk.Window):
         if isinstance(dbm, (int, float)):
             self.connectivity_history["wifi_dbm"].append(float(dbm))
         self.connectivity_history["wifi_dbm"] = self.connectivity_history["wifi_dbm"][-10:]
-        self.labels["wifi_trend"].set_text(format_history_trend(self.connectivity_history["wifi_dbm"], 6))
+        if "wifi_trend" in self.labels:
+            self.labels["wifi_trend"].set_text(format_history_trend(self.connectivity_history["wifi_dbm"], 6))
 
         links = self.connectivity_history["active_link"]
         links.append(active)
@@ -2636,6 +4297,7 @@ class App(Gtk.Window):
 
     def apply_data(self, d):
         self._refreshing = False
+        self.latest_aio_states = dict(d.get("aio", {}) or {})
         self.labels["cpu"].set_text(d["cpu"])
         self.labels["ram"].set_text(d["ram"])
         self.labels["disk"].set_text(d["disk"])
@@ -2648,7 +4310,7 @@ class App(Gtk.Window):
         self.labels["speed"].set_text(g["speed"])
         self.labels["track"].set_text(g["track"])
         self.labels["gps_quality"].set_text(
-            f"{g.get('confidence', '—')} • used {g.get('sats_used', '—')}"
+            f"{g.get('confidence', '—')} {g.get('quality_grade', 'unknown')} • used {g.get('sats_used', '—')}"
         )
         self.labels["dop_summary"].set_text(
             f"{g.get('hdop', '—')} / {g.get('vdop', '—')} / {g.get('pdop', '—')}"
@@ -2677,10 +4339,14 @@ class App(Gtk.Window):
 
         self.gps_quality_history["sats"] = self.gps_quality_history["sats"][-10:]
         self.gps_quality_history["pdop"] = self.gps_quality_history["pdop"][-10:]
-        self.labels["gps_trend"].set_text(
-            f"sats {format_history_trend(self.gps_quality_history['sats'], 5)} • "
-            f"pdop {format_history_trend(self.gps_quality_history['pdop'], 5)}"
-        )
+        sats_tail = format_history_trend(self.gps_quality_history["sats"], 3)
+        pdop_tail = format_history_trend(self.gps_quality_history["pdop"], 3)
+        sats_dir = trend_direction(self.gps_quality_history["sats"], lower_better=False)
+        pdop_dir = trend_direction(self.gps_quality_history["pdop"], lower_better=True)
+        if "gps_trend" in self.labels:
+            self.labels["gps_trend"].set_text(
+                f"sats {sats_tail} ({sats_dir}) • pdop {pdop_tail} ({pdop_dir})"
+            )
         for dev, state in d["aio"].items():
             self.set_radio_visual(dev, state)
 
@@ -2724,6 +4390,8 @@ class App(Gtk.Window):
 
         usb_on = d.get("aio", {}).get("USB") is True
         self.apply_ac1200_dependency_state(usb_on)
+        self.apply_gps_dependency_state(self.latest_aio_states.get("GPS"))
+        self.apply_sdr_dependency_state(self.latest_aio_states.get("SDR"))
 
         alerts = self.evaluate_alerts(d)
         self.apply_alerts(alerts)

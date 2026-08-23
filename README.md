@@ -188,6 +188,21 @@ sudo apt install navit wireshark kismet gqrx-sdr
 
 Other tools such as SDR++ and PyGPSClient may come from HackerGadgets packages or other sources.
 
+## SDR++ fix installer
+
+If SDR++ launches but is silent, run the dedicated fix script:
+
+```bash
+sudo bash ./scripts/install-sdrpp-fixes.sh
+```
+
+This script applies the runtime/audio fixes discovered during field testing:
+
+1. Installs SDR++ when available from configured repositories.
+2. Resolves RtAudio runtime compatibility for SDR++ audio plugins (`librtaudio.so.6`).
+3. Patches user SDR++ config to ensure `streams.Radio.sink = Audio`, `muted = false`, and `source = RTL-SDR`.
+4. Prints post-install guidance about stopping `readsb` before SDR++ use.
+
 ## Uninstall
 
 ```bash
