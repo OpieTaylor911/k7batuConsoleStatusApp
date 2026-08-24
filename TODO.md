@@ -28,6 +28,9 @@ Updated: 2026-08-22
 - [ ] Auto-Update and Rollback
   - Current: startup release detection and popup with GitHub tag fallback are implemented.
   - Remaining: one-click in-app apply, channel selection, backup/restore workflow, and rollback safety gates.
+- [ ] WiFiPineapple-Type Interface for WiFi Tools
+  - Current: separate WiFi attack windows (Passive Survey, Active Attacks, Network Attacks, Monitor Mode, Firmware Analysis).
+  - Remaining: unified WiFiPineapple-style interface with tool categories, quick-action buttons, and centralized configuration panel.
 
 ### Not Started
 - [ ] APRS Beacon + Position Logging
