@@ -3203,17 +3203,17 @@ class App(Gtk.Window):
         """Open full-screen tactical WiFi attack tools interface"""
         try:
             window = Gtk.Window(title="Tactical WiFi Attack Tools")
-            window.set_default_size(900, 600)
-            window.set_border_width(12)
-            window.set_position(Gtk.WindowPosition.CENTER)
+            window.set_default_size(1366, 768)
+            window.fullscreen()
             
-            # Create main layout
-            main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            # Create main layout with reduced spacing
+            main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            main_box.set_border_width(8)
             window.add(main_box)
             
             # Header section with status and tools overview
-            header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            header_box.set_margin_bottom(8)
+            header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            header_box.set_margin_bottom(4)
             main_box.pack_start(header_box, False, False, 0)
             
             # Status indicator
@@ -3221,9 +3221,14 @@ class App(Gtk.Window):
             status_label.get_style_context().add_class("titlebar")
             header_box.pack_start(status_label, True, True, 0)
             
+            # Exit button in header
+            exit_btn = Gtk.Button(label="Exit Fullscreen")
+            exit_btn.connect("clicked", lambda b: window.destroy())
+            header_box.pack_end(exit_btn, False, False, 0)
+            
             # Quick status widgets
-            wifi_status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            wifi_status_box.set_margin_left(8)
+            wifi_status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            wifi_status_box.set_margin_left(4)
             header_box.pack_end(wifi_status_box, False, False, 0)
             
             wifi_iface_label = Gtk.Label(label="Interface: wlan1")
@@ -3242,8 +3247,8 @@ class App(Gtk.Window):
             scan_section_label.set_xalign(0)
             main_box.pack_start(scan_section_label, False, False, 0)
             
-            scan_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            scan_toolbar.set_margin_top(4)
+            scan_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            scan_toolbar.set_margin_top(2)
             main_box.pack_start(scan_toolbar, False, False, 0)
             
             scan_btn = Gtk.Button(label="Scan Networks")
@@ -3287,8 +3292,8 @@ class App(Gtk.Window):
             
             wifi_scrolled = Gtk.ScrolledWindow()
             wifi_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-            wifi_scrolled.set_margin_top(4)
-            wifi_scrolled.set_min_content_height(120)
+            wifi_scrolled.set_margin_top(2)
+            wifi_scrolled.set_min_content_height(100)
             wifi_scrolled.add(wifi_tree)
             main_box.pack_start(wifi_scrolled, True, True, 0)
             
@@ -3300,9 +3305,9 @@ class App(Gtk.Window):
             # Pre-populate with initial scan
             self.scan_tactical_wifi(wifi_store, scan_status, scan_btn)
             
-            # Tools grid layout
-            tools_grid = Gtk.Grid(column_spacing=8, row_spacing=8)
-            tools_grid.set_margin_top(8)
+            # Tools grid layout with reduced spacing
+            tools_grid = Gtk.Grid(column_spacing=4, row_spacing=4)
+            tools_grid.set_margin_top(4)
             main_box.pack_start(tools_grid, True, True, 0)
             
             # Row 1: Passive Survey Tools (Kismet, Wireshark, Tshark)
@@ -3404,11 +3409,6 @@ class App(Gtk.Window):
             self.decorate_button(pyshark_btn, "terminal", "Launch PyShark")
             pyshark_btn.connect("clicked", lambda b: self.launch_python_tool(status_label, "pyshark"))
             tools_grid.attach(pyshark_btn, 2, 9, 1, 1)
-            
-            # Close button at bottom
-            close_btn = Gtk.Button(label="Close Tactical Interface")
-            close_btn.connect("clicked", lambda b: window.destroy())
-            main_box.pack_end(close_btn, False, False, 0)
             
             window.show_all()
         except Exception as e:
