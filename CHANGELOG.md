@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0 - 2026-08-23
+
+- Added auto-update with rollback capability
+- Implemented backup system: `create_backup()` and `get_available_backups()`
+- Added update download/installation: `apply_update()` and `download_release_assets()` with tarball fallback
+- Implemented rollback functionality: `rollback_to_backup()`
+- Added settings schema with `update_channel` field (stable/beta)
+- Enhanced release popup with channel selection and Download & Install button
+- Added helper methods: `_download_and_install_update()`, `on_update_complete()`, `restart_app()`, `show_rollback_dialog()`
+- Updated deployment script to auto-restart app after sync
+- Added SDR++ compatibility fixes and WiFi toolkit scripts
+
 ## 1.1.9 - 2026-08-22
 
 - Added startup GitHub release check against the configured repository.
