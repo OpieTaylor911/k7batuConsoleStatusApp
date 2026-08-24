@@ -37,8 +37,37 @@ Updated: 2026-08-22
   - Scope: Integrate Wifite2 as automated attack framework with GUI controls for target selection, wordlists, and progress monitoring.
 - [ ] WiFiPineapple Integration - Bettercap MITM Caplets
   - Scope: Create GUI interface to launch Bettercap HTTPAuth, DNS Spoof, SSLStrip caplets with configurable targets.
-- [ ] WiFiPineapple Integration - Rogue AP / Evil Twin
+- [ ] WiFiPineapple Integration - Rogue AP / Evil Portal
   - Scope: Interface for creating rogue access points using hostapd/dnsmasq for phishing/lure attacks.
+  - Hardware: Already supported (HackerGadgets AC1200 MT7921AUN supports monitor mode + AP mode).
+- [ ] WiFiPineapple Integration - EAPHammer WPA2-Enterprise Evil Twin
+  - Scope: Target corporate WPA2-Enterprise networks with credential stealing and hostile portal attacks.
+  - Hardware: Already supported (MT7921 driver supports 802.11ac + AP mode for rogue APs).
+- [ ] WiFiPineapple Integration - Bettercap MITM Caplets
+  - Scope: Create GUI interface to launch Bettercap HTTPAuth, DNS Spoof, SSLStrip caplets with configurable targets.
+- [ ] WiFiPineapple Integration - Responder/NTLM Hash Capture
+  - Scope: Monitor and display NTLMv2 hashes captured via bettercap MITM or Responder integration.
+
+## Hardware Requirements for WiFiPineapple Features
+
+| Feature | Current Hardware | Additional Required |
+|---------|-----------------|---------------------|
+| **Passive Survey** (Kismet) | ✅ HackerGadgets AC1200 (MT7921AUN) | None - already supported |
+| **Monitor Mode** | ✅ HackerGadgets AC1200 | None - mt7921 driver supports it |
+| **Rogue AP / Evil Portal** | ✅ HackerGadgets AC1200 | None - AP mode supported in hostapd |
+| **WPA2-Enterprise Evil Twin** | ✅ HackerGadgets AC1200 | None - EAPHammer works with mt7921 |
+| **Packet Injection** | ✅ HackerGadgets AC1200 | None - aircrack-ng works out of box |
+| **Wifite2 Automation** | ✅ Existing tools installed | None - Python framework only |
+
+### Hardware Summary
+Your current uConsole with **HackerGadgets AC1200 (MT7921AUN)** has all the hardware needed for:
+- Passive wireless surveying
+- Monitor mode packet capture
+- Rogue AP / Evil Portal creation
+- WPA2-Enterprise evil twin attacks
+- Packet injection & cracking
+
+No additional hardware required! 🎉
 - [ ] APRS Beacon + Position Logging
 - [ ] Offline Map Panel
 - [ ] Tactical Wi-Fi Defensive Audit
