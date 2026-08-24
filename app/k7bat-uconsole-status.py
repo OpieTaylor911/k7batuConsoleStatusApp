@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+import tarfile
 import threading
 import urllib.error
 import urllib.request
@@ -25,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.1.9"
+APP_VERSION = "1.2.0"
 REFRESH_SECONDS = 4
 SERVICE_PRIV_HINT = "Enable passwordless service control (sudoers) for bluetooth/readsb."
 DEFAULT_GITHUB_REPO = "OpieTaylor911/k7batuConsoleStatusApp"
@@ -350,13 +351,14 @@ def get_latest_backup():
         return None
 
 def download_release_assets(repo, tag, timeout=30):
-    """Download release assets from GitHub."""
+    """Download release assets from GitHub. Falls back to tarball if no assets exist."""
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "k7bat-uconsole-status",
     }
     
     try:
+        # Try to get release info
         req = urllib.request.Request(
             f"https://api.github.com/repos/{repo}/releases/tags/v{tag}" if not tag.startswith("v") else f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
             headers=headers
@@ -364,6 +366,7 @@ def download_release_assets(repo, tag, timeout=30):
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             release = json.loads(resp.read().decode("utf-8", "replace"))
         
+        # Get assets from release if available
         assets = []
         for asset in release.get("assets", []):
             assets.append({
@@ -371,6 +374,16 @@ def download_release_assets(repo, tag, timeout=30):
                 "url": asset["browser_download_url"],
                 "size": asset.get("size", 0)
             })
+        
+        # If no assets, use tarball as fallback (entire repo archive)
+        if not assets:
+            tarball_url = release.get("tarball_url")
+            if tarball_url:
+                assets.append({
+                    "name": f"{repo.split('/')[1]}-{tag}.tar.gz",
+                    "url": tarball_url,
+                    "size": 0
+                })
         
         return release.get("tag_name", tag).lstrip("vV"), assets, release.get("body", "")
     except Exception as e:
@@ -411,6 +424,35 @@ def apply_update(app_dir, new_version, assets, progress_callback=None):
                 return False, f"Failed to download {asset['name']}: {success}"
             
             downloaded_count += 1
+        
+        # Handle tarball downloads (extract if needed)
+        for asset in assets:
+            if asset["name"].endswith(".tar.gz"):
+                tar_path = app_dir / asset["name"]
+                if tar_path.exists():
+                    if progress_callback:
+                        GLib.idle_add(progress_callback, f"Extracting {asset['name']}...")
+                    
+                    # Extract tarball to temp location, then move files
+                    import tempfile
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        with tarfile.open(tar_path, "r:gz") as tar:
+                            tar.extractall(tmpdir)
+                        
+                        # Move extracted contents (one level deep) to app_dir
+                        extracted_items = list(Path(tmpdir).iterdir())
+                        if extracted_items:
+                            source_dir = extracted_items[0]  # First item is the root folder
+                            for item in source_dir.iterdir():
+                                dest = app_dir / item.name
+                                if dest.exists():
+                                    if dest.is_dir():
+                                        shutil.rmtree(dest)
+                                    else:
+                                        dest.unlink()
+                                shutil.move(str(item), str(dest))
+                    
+                    tar_path.unlink()  # Remove downloaded tarball
         
         # Update VERSION file
         version_file = app_dir / "VERSION"
