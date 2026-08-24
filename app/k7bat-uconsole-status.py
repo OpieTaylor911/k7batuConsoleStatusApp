@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 REFRESH_SECONDS = 4
 SERVICE_PRIV_HINT = "Enable passwordless service control (sudoers) for bluetooth/readsb."
 DEFAULT_GITHUB_REPO = "OpieTaylor911/k7batuConsoleStatusApp"
