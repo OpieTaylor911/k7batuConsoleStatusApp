@@ -3201,6 +3201,7 @@ class App(Gtk.Window):
 
     def open_tactical_wifi_attacks_fullscreen(self, _button=None):
         """Open full-screen tactical WiFi attack tools interface"""
+        self.status.set_text("Opening Tactical WiFi Attacks...")
         try:
             window = Gtk.Window(title="Tactical WiFi Attack Tools")
             window.set_default_size(1366, 768)
@@ -3299,120 +3300,151 @@ class App(Gtk.Window):
             
             # Scan button callback
             scan_btn.connect("clicked", lambda _b: self.scan_tactical_wifi(wifi_store, scan_status, scan_btn))
-            connect_btn.connect("clicked", lambda _b: self.connect_tactical_wifi(wifi_tree, wifi_store, scan_status, scan_btn, window, auto_close))
+            connect_btn.connect("clicked", lambda _b: self.connect_tactical_wifi(wifi_tree, wifi_store, scan_status, scan_btn, None, auto_close))
             disconnect_btn.connect("clicked", lambda _b: self.disconnect_tactical_wifi(wifi_store, scan_status, scan_btn))
             
             # Pre-populate with initial scan
             self.scan_tactical_wifi(wifi_store, scan_status, scan_btn)
             
-            # Tools grid layout with reduced spacing
-            tools_grid = Gtk.Grid(column_spacing=4, row_spacing=4)
-            tools_grid.set_margin_top(4)
-            main_box.pack_start(tools_grid, True, True, 0)
+            # Two-column tools layout for better space utilization
+            tools_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            tools_hbox.set_margin_top(4)
+            main_box.pack_start(tools_hbox, True, True, 0)
             
-            # Row 1: Passive Survey Tools (Kismet, Wireshark, Tshark)
-            passive_label = Gtk.Label(label="Passive Survey & Analysis")
-            passive_label.get_style_context().add_class("heading")
-            passive_label.set_xalign(0)
-            tools_grid.attach(passive_label, 0, 0, 3, 1)
+            # Left column (Passive Survey + Active Attacks)
+            left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            left_col.set_size_request(320, -1)
+            tools_hbox.pack_start(left_col, False, False, 0)
+            
+            # Passive Survey
+            passive_frame = Gtk.Frame(label="Passive Survey & Analysis")
+            passive_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            passive_box.set_margin_top(4)
+            passive_box.set_margin_bottom(4)
+            passive_box.set_margin_left(4)
+            passive_box.set_margin_right(4)
+            passive_frame.add(passive_box)
+            left_col.pack_start(passive_frame, False, False, 0)
             
             kismet_btn = Gtk.Button(label="Kismet RF Survey")
             self.decorate_button(kismet_btn, "wifi", "Start Kismet")
             kismet_btn.connect("clicked", lambda b: self.launch_kismet(status_label))
-            tools_grid.attach(kismet_btn, 0, 1, 1, 1)
+            passive_box.pack_start(kismet_btn, False, False, 0)
             
             wireshark_btn = Gtk.Button(label="Wireshark GUI")
             self.decorate_button(wireshark_btn, "network", "Launch Wireshark")
             wireshark_btn.connect("clicked", lambda b: self.launch_wireshark(status_label))
-            tools_grid.attach(wireshark_btn, 1, 1, 1, 1)
+            passive_box.pack_start(wireshark_btn, False, False, 0)
             
             tshark_btn = Gtk.Button(label="Tshark Capture")
             self.decorate_button(tshark_btn, "terminal", "Launch Tshark")
             tshark_btn.connect("clicked", lambda b: self.launch_tshark(status_label))
-            tools_grid.attach(tshark_btn, 2, 1, 1, 1)
+            passive_box.pack_start(tshark_btn, False, False, 0)
             
-            # Row 2: Active Attack Tools (Reaver, Bully, Cowpatty)
-            active_label = Gtk.Label(label="Active WPA/WPS Attacks")
-            active_label.get_style_context().add_class("heading")
-            active_label.set_xalign(0)
-            tools_grid.attach(active_label, 0, 2, 3, 1)
+            # Active Attacks
+            active_frame = Gtk.Frame(label="Active WPA/WPS Attacks")
+            active_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            active_box.set_margin_top(4)
+            active_box.set_margin_bottom(4)
+            active_box.set_margin_left(4)
+            active_box.set_margin_right(4)
+            active_frame.add(active_box)
+            left_col.pack_start(active_frame, False, False, 0)
             
             reaver_btn = Gtk.Button(label="Reaver (WPS)")
             self.decorate_button(reaver_btn, "wifi", "Launch Reaver")
             reaver_btn.connect("clicked", lambda b: self.launch_tool(status_label, "reaver"))
-            tools_grid.attach(reaver_btn, 0, 3, 1, 1)
+            active_box.pack_start(reaver_btn, False, False, 0)
             
             bully_btn = Gtk.Button(label="Bully (WPS)")
             self.decorate_button(bully_btn, "wifi", "Launch Bully")
             bully_btn.connect("clicked", lambda b: self.launch_tool(status_label, "bully"))
-            tools_grid.attach(bully_btn, 1, 3, 1, 1)
+            active_box.pack_start(bully_btn, False, False, 0)
             
             cowpatty_btn = Gtk.Button(label="Cowpatty (Offline)")
             self.decorate_button(cowpatty_btn, "terminal", "Launch Cowpatty")
             cowpatty_btn.connect("clicked", lambda b: self.launch_tool(status_label, "cowpatty"))
-            tools_grid.attach(cowpatty_btn, 2, 3, 1, 1)
+            active_box.pack_start(cowpatty_btn, False, False, 0)
             
-            # Row 3: Network Attack Tools (MDK4, Hostapd, Dnsmasq)
-            netattack_label = Gtk.Label(label="Network Infrastructure Attacks")
-            netattack_label.get_style_context().add_class("heading")
-            netattack_label.set_xalign(0)
-            tools_grid.attach(netattack_label, 0, 4, 3, 1)
+            # Right column (Network Attacks + Monitor Mode + Firmware)
+            right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            tools_hbox.pack_start(right_col, False, False, 0)
+            
+            # Network Attacks
+            netattack_frame = Gtk.Frame(label="Network Infrastructure Attacks")
+            netattack_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            netattack_box.set_margin_top(4)
+            netattack_box.set_margin_bottom(4)
+            netattack_box.set_margin_left(4)
+            netattack_box.set_margin_right(4)
+            netattack_frame.add(netattack_box)
+            right_col.pack_start(netattack_frame, False, False, 0)
             
             mdk4_btn = Gtk.Button(label="MDK4 (DoS/PenTest)")
             self.decorate_button(mdk4_btn, "terminal", "Launch MDK4")
             mdk4_btn.connect("clicked", lambda b: self.launch_tool(status_label, "mdk4"))
-            tools_grid.attach(mdk4_btn, 0, 5, 1, 1)
+            netattack_box.pack_start(mdk4_btn, False, False, 0)
             
             hostapd_btn = Gtk.Button(label="Hostapd (Rogue AP)")
             self.decorate_button(hostapd_btn, "network", "Launch Hostapd")
             hostapd_btn.connect("clicked", lambda b: self.launch_tool(status_label, "hostapd"))
-            tools_grid.attach(hostapd_btn, 1, 5, 1, 1)
+            netattack_box.pack_start(hostapd_btn, False, False, 0)
             
             dnsmasq_btn = Gtk.Button(label="Dnsmasq (Rogue DHCP)")
             self.decorate_button(dnsmasq_btn, "network", "Launch Dnsmasq")
             dnsmasq_btn.connect("clicked", lambda b: self.launch_tool(status_label, "dnsmasq"))
-            tools_grid.attach(dnsmasq_btn, 2, 5, 1, 1)
+            netattack_box.pack_start(dnsmasq_btn, False, False, 0)
             
-            # Row 4: Monitor Mode Controls
-            monitor_label = Gtk.Label(label="Monitor Mode Control")
-            monitor_label.get_style_context().add_class("heading")
-            monitor_label.set_xalign(0)
-            tools_grid.attach(monitor_label, 0, 6, 3, 1)
+            # Monitor Mode
+            monitor_frame = Gtk.Frame(label="Monitor Mode Control")
+            monitor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            monitor_box.set_margin_top(4)
+            monitor_box.set_margin_bottom(4)
+            monitor_box.set_margin_left(4)
+            monitor_box.set_margin_right(4)
+            monitor_frame.add(monitor_box)
+            right_col.pack_start(monitor_frame, False, False, 0)
             
             start_monitor_btn = Gtk.Button(label="Start Monitor (k7mon0)")
             self.decorate_button(start_monitor_btn, "wifi", "Create k7mon0")
             start_monitor_btn.connect("clicked", lambda b: self.launch_monitor_mode(status_label))
-            tools_grid.attach(start_monitor_btn, 0, 7, 1, 1)
+            monitor_box.pack_start(start_monitor_btn, False, False, 0)
             
             stop_monitor_btn = Gtk.Button(label="Stop Monitor")
             self.decorate_button(stop_monitor_btn, "power", "Remove k7mon0")
             stop_monitor_btn.connect("clicked", lambda b: self.stop_monitor_mode(status_label))
-            tools_grid.attach(stop_monitor_btn, 1, 7, 1, 1)
+            monitor_box.pack_start(stop_monitor_btn, False, False, 0)
             
-            # Row 5: Firmware Analysis
-            firmware_label = Gtk.Label(label="Firmware Analysis")
-            firmware_label.get_style_context().add_class("heading")
-            firmware_label.set_xalign(0)
-            tools_grid.attach(firmware_label, 0, 8, 3, 1)
+            # Firmware Analysis
+            firmware_frame = Gtk.Frame(label="Firmware Analysis")
+            firmware_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            firmware_box.set_margin_top(4)
+            firmware_box.set_margin_bottom(4)
+            firmware_box.set_margin_left(4)
+            firmware_box.set_margin_right(4)
+            firmware_frame.add(firmware_box)
+            right_col.pack_start(firmware_frame, False, False, 0)
             
             binwalk_btn = Gtk.Button(label="Binwalk (Extract)")
             self.decorate_button(binwalk_btn, "terminal", "Launch Binwalk")
             binwalk_btn.connect("clicked", lambda b: self.launch_tool(status_label, "binwalk"))
-            tools_grid.attach(binwalk_btn, 0, 9, 1, 1)
+            firmware_box.pack_start(binwalk_btn, False, False, 0)
             
             scapy_btn = Gtk.Button(label="Scapy (Packet Mani)")
             self.decorate_button(scapy_btn, "terminal", "Launch Scapy")
             scapy_btn.connect("clicked", lambda b: self.launch_python_tool(status_label, "scapy"))
-            tools_grid.attach(scapy_btn, 1, 9, 1, 1)
+            firmware_box.pack_start(scapy_btn, False, False, 0)
             
             pyshark_btn = Gtk.Button(label="PyShark (Wireshark)")
             self.decorate_button(pyshark_btn, "terminal", "Launch PyShark")
             pyshark_btn.connect("clicked", lambda b: self.launch_python_tool(status_label, "pyshark"))
-            tools_grid.attach(pyshark_btn, 2, 9, 1, 1)
+            firmware_box.pack_start(pyshark_btn, False, False, 0)
             
             window.show_all()
+            self.status.set_text("Tactical WiFi Attacks window opened")
         except Exception as e:
-            self.status.set_text(f"Error opening tactical interface: {str(e)}")
+            error_msg = f"Error opening tactical interface: {str(e)}"
+            self.status.set_text(error_msg)
         
     def launch_kismet(self, status_label=None):
         """Launch Kismet RF survey tool"""
