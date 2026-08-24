@@ -33,6 +33,12 @@ Updated: 2026-08-22
   - Remaining: unified WiFiPineapple-style interface with tool categories, quick-action buttons, and centralized configuration panel.
 
 ### Not Started
+- [ ] WiFiPineapple Integration - Wifite2 Automated Attacks
+  - Scope: Integrate Wifite2 as automated attack framework with GUI controls for target selection, wordlists, and progress monitoring.
+- [ ] WiFiPineapple Integration - Bettercap MITM Caplets
+  - Scope: Create GUI interface to launch Bettercap HTTPAuth, DNS Spoof, SSLStrip caplets with configurable targets.
+- [ ] WiFiPineapple Integration - Rogue AP / Evil Twin
+  - Scope: Interface for creating rogue access points using hostapd/dnsmasq for phishing/lure attacks.
 - [ ] APRS Beacon + Position Logging
 - [ ] Offline Map Panel
 - [ ] Tactical Wi-Fi Defensive Audit
