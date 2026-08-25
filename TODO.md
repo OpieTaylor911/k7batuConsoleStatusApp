@@ -25,12 +25,17 @@ Updated: 2026-08-22
 - [ ] Secure Remote Assist Mode
   - Current: baseline diagnostics script exists.
   - Remaining: temporary diagnostics bundle workflow and tokenized upload path.
-- [ ] Auto-Update and Rollback
+- [x] Auto-Update and Rollback
   - Current: startup release detection and popup with GitHub tag fallback are implemented.
-  - Remaining: one-click in-app apply, channel selection, backup/restore workflow, and rollback safety gates.
+  - Completed: backup/restore workflow, channel selection, and one-click in-app apply (requires passwordless sudo).
 - [ ] WiFiPineapple-Type Interface for WiFi Tools
   - Current: separate WiFi attack windows (Passive Survey, Active Attacks, Network Attacks, Monitor Mode, Firmware Analysis).
   - Remaining: unified WiFiPineapple-style interface with tool categories, quick-action buttons, and centralized configuration panel.
+### Completed
+- [x] Hak5 Pineapple Module Loader Plugin System
+  - Created `app/plugins/pineapple_loader.py` with core module loading infrastructure
+  - Supports module discovery from directory, metadata parsing from `module.json`, Python action execution
+  - Created `app/plugins/pineapple_ui.py` with GTK3 UI for module management
 
 ### Not Started
 - [ ] WiFiPineapple Integration - Wifite2 Automated Attacks
@@ -45,6 +50,10 @@ Updated: 2026-08-22
   - Hardware: Already supported (MT7921 driver supports 802.11ac + AP mode for rogue APs).
 - [ ] WiFiPineapple Integration - Bettercap MITM Caplets
   - Scope: Create GUI interface to launch Bettercap HTTPAuth, DNS Spoof, SSLStrip caplets with configurable targets.
+- [ ] Hak5 Pineapple Modules UI Integration
+  - Scope: Add "Hak5 Pineapple Modules" button to plugin row that opens module management dialog
+  - Current: Loader and UI classes created in `app/plugins/`, integrated into main App class
+  - Task: Modified `app/k7bat-uconsole-status.py` to register plugin button and handle clicks ✅
 - [ ] WiFiPineapple Integration - Responder/NTLM Hash Capture
   - Scope: Monitor and display NTLMv2 hashes captured via bettercap MITM or Responder integration.
 

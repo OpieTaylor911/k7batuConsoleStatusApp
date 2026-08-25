@@ -101,6 +101,17 @@ if (-not $SkipSync) {
             }
         }
         
+        # Remove any duplicate app files that might exist outside the app directory
+        Write-Host "==> Cleaning up stale app files on remote"
+        $cleanupCmd = @(
+            "cd '$RemoteDir'",
+            "if [ -f 'k7bat-uconsole-status.py' ]; then",
+            "    rm -f 'k7bat-uconsole-status.py'",
+            "    echo 'Removed duplicate: k7bat-uconsole-status.py'",
+            "fi"
+        ) -join "`n"
+        Invoke-Remote $cleanupCmd
+        
         # Normalize line endings for updated shell scripts
         Write-Host "==> Normalizing remote shell script line endings"
         $normalizeCmd = @(

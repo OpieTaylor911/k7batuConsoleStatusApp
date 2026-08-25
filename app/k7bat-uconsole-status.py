@@ -1401,6 +1401,9 @@ class App(Gtk.Window):
         self.mission_file_path = None
         self.mission_started_at = None
         self.mission_stats = {}
+        
+        # Hak5 Pineapple Modules integration
+        self.pineapple_modules_button = None
 
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
@@ -2258,6 +2261,12 @@ class App(Gtk.Window):
                 b.set_tooltip_text(f"Launch {plugin['label']}")
             b.connect("clicked", lambda _b, n=key: self.on_launch_clicked(n))
             self.plugin_box.add(b)
+        
+        # Add Hak5 Pineapple Modules button
+        self.pineapple_modules_button = Gtk.Button(label="Hak5 Pineapple")
+        self.decorate_button(self.pineapple_modules_button, "network-wireless", "Hak5 Pineapple")
+        self.pineapple_modules_button.connect("clicked", self.on_pineapple_clicked)
+        self.plugin_box.add(self.pineapple_modules_button)
 
         self.plugin_box.show_all()
 
@@ -2899,6 +2908,53 @@ class App(Gtk.Window):
         dlg.destroy()
         if parent_dialog is not None:
             parent_dialog.present()
+
+    def on_pineapple_clicked(self, _button):
+        """Handle Hak5 Pineapple Modules button click."""
+        try:
+            # Import the pineapple UI module with full-screen window support
+            import sys
+            from pathlib import Path
+            app_dir = Path(__file__).resolve().parent
+            plugins_dir = app_dir / "plugins"
+            
+            if str(plugins_dir) not in sys.path:
+                sys.path.insert(0, str(plugins_dir))
+            
+            # Import both for compatibility
+            try:
+                from pineapple_ui import PineappleWindow  # Full-screen window
+                # Show full-screen window
+                window = PineappleWindow(self)
+                return
+            except ImportError:
+                pass
+            
+            # Fallback to dialog if full-screen not available
+            from pineapple_ui import PineappleModuleManager
+            
+            # Create and show the manager in a dialog
+            manager = PineappleModuleManager(self)
+            content = manager.create_tab()
+            
+            # Show in a dialog with exit button
+            dlg = Gtk.Dialog(title="Hak5 Pineapple Modules", transient_for=self, flags=0)
+            dlg.set_default_size(900, 600)
+            content.set_border_width(0)
+            dlg.get_content_area().pack_start(content, True, True, 0)
+            
+            close_btn = dlg.add_button("Exit", Gtk.ResponseType.CLOSE)
+            close_btn.connect("clicked", lambda _b: dlg.destroy())
+            
+            dlg.show_all()
+            dlg.run()
+            dlg.destroy()
+            
+        except Exception as e:
+            self.status.set_text(f"Hak5 Pineapple error: {str(e)[:100]}")
+            import traceback
+            import logging
+            logging.error(traceback.format_exc())
 
     def get_icon_image(self, icon_name, size=16):
         if not icon_name:

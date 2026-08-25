@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K7BAT uConsole Status - Web Interface</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <header class="dashboard-header">
+        <div class="header-content">
+            <h1>K7BAT uConsole Status</h1>
+            <span class="version">v1.3.0</span>
+        </div>
+        <div class="system-stats">
+            <div class="stat-box cpu">
+                <span class="label">CPU</span>
+                <span class="value" id="cpu-value">0%</span>
+            </div>
+            <div class="stat-box ram">
+                <span class="label">RAM</span>
+                <span class="value" id="ram-value">0%</span>
+            </div>
+            <div class="stat-box disk">
+                <span class="label">Disk</span>
+                <span class="value" id="disk-value">0%</span>
+            </div>
+        </div>
+    </header>
+
+    <nav class="main-nav">
+        <button class="nav-btn active" data-target="dashboard">Dashboard</button>
+        <button class="nav-btn" data-target="wifi">WiFi Tools</button>
+        <button class="nav-btn" data-target="payloads">Payloads</button>
+        <button class="nav-btn" data-target="plugins">Plugins</button>
+        <button class="nav-btn" data-target="settings">Settings</button>
+    </nav>
+
+    <main class="dashboard-content">
+        <!-- Dashboard Tab -->
+        <section id="dashboard" class="tab-content active">
+            <div class="grid-2col">
+                <div class="card">
+                    <h2>System Status</h2>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="label">Uptime</span>
+                            <span class="value" id="uptime">--:--:--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">Hostname</span>
+                            <span class="value" id="hostname">uconsole</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">Kernel</span>
+                            <span class="value" id="kernel">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Network Interfaces</h2>
+                    <div class="interface-list" id="interface-list">
+                        <p>No interfaces detected</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2col">
+                <div class="card">
+                    <h2>WiFi Interfaces</h2>
+                    <div class="wifi-interface-list" id="wifi-interface-list">
+                        <p>No WiFi interfaces detected</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Quick Actions</h2>
+                    <div class="action-grid">
+                        <button class="action-btn" onclick="scanWifi()">
+                            📡 Scan WiFi
+                        </button>
+                        <button class="action-btn" onclick="startKismet()">
+                            🔍 Start Kismet
+                        </button>
+                        <button class="action-btn" onclick="showToast('Bettercap starting...')">
+                            ⚡ Start Bettercap
+                        </button>
+                        <button class="action-btn" onclick="refreshSystemStats()">
+                            🔄 Refresh Stats
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <h2>Real-time System Monitor</h2>
+                <div class="monitor-chart">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- WiFi Tools Tab -->
+        <section id="wifi" class="tab-content">
+            <div class="grid-3col">
+                <div class="card">
+                    <h2>Passive Survey</h2>
+                    <p>Kismet wireless network detector</p>
+                    <div class="tool-controls">
+                        <select id="kismet-interface">
+                            <option value="">Select interface...</option>
+                        </select>
+                        <button class="action-btn" onclick="startKismet()">Start</button>
+                        <button class="action-btn" onclick="stopTool('kismet')">Stop</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Active Attacks</h2>
+                    <p>Aircrack-ng packet injection & cracking</p>
+                    <div class="tool-controls">
+                        <select id="aircrack-interface">
+                            <option value="">Select interface...</option>
+                        </select>
+                        <button class="action-btn" onclick="startAircrack()">Start Monitor</button>
+                        <button class="action-btn" onclick="stopTool('aircrack')">Stop</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Network Attacks</h2>
+                    <p>Bettercap MITM attacks</p>
+                    <div class="tool-controls">
+                        <select id="bettercap-interface">
+                            <option value="">Select interface...</option>
+                        </select>
+                        <button class="action-btn" onclick="startBettercap()">Start MITM</button>
+                        <button class="action-btn" onclick="stopTool('bettercap')">Stop</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Monitor Mode</h2>
+                    <p>Packet capture & analysis</p>
+                    <div class="tool-controls">
+                        <select id="monitor-interface">
+                            <option value="">Select interface...</option>
+                        </select>
+                        <button class="action-btn" onclick="startMonitorMode()">Enable</button>
+                        <button class="action-btn" onclick="stopMonitorMode()">Disable</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Firmware Analysis</h2>
+                    <p>Binwalk firmware extraction</p>
+                    <div class="tool-controls">
+                        <input type="file" id="firmware-file" accept=".bin,.img,.rom">
+                        <button class="action-btn" onclick="analyzeFirmware()">Analyze</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Rogue AP / Evil Portal</h2>
+                    <p>Create rogue access points</p>
+                    <div class="tool-controls">
+                        <input type="text" id="rogue-ssid" placeholder="SSID">
+                        <select id="rogue-channel">
+                            <option value="1">Channel 1</option>
+                            <option value="6">Channel 6</option>
+                            <option value="11">Channel 11</option>
+                        </select>
+                        <button class="action-btn" onclick="startRogueAP()">Start AP</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Payloads Tab -->
+        <section id="payloads" class="tab-content">
+            <div class="card full-width">
+                <h2>Upload Payload</h2>
+                <div class="upload-area" id="upload-area">
+                    <input type="file" id="payload-file-input" accept=".py,.sh,.json">
+                    <button class="action-btn" onclick="uploadPayload()">Upload</button>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <h2>Available Payloads</h2>
+                <table class="data-table" id="payloads-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Size</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Payloads will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card full-width">
+                <h2>Payload Templates</h2>
+                <div class="template-grid">
+                    <button class="action-btn" onclick="createTemplate('wifi-scan')">WiFi Scan Script</button>
+                    <button class="action-btn" onclick="createTemplate('deauth-attack')">Deauth Attack</button>
+                    <button class="action-btn" onclick="createTemplate('capture-handshake')">Handshake Capture</button>
+                    <button class="action-btn" onclick="createTemplate('mitm-proxy')">MITM Proxy</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Plugins Tab -->
+        <section id="plugins" class="tab-content">
+            <div class="card full-width">
+                <h2>Upload Plugin</h2>
+                <div class="upload-area">
+                    <input type="file" id="plugin-file-input" accept=".py">
+                    <button class="action-btn" onclick="uploadPlugin()">Upload</button>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <h2>Installed Plugins</h2>
+                <table class="data-table" id="plugins-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Version</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Plugins will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card full-width">
+                <h2>Plugin Store</h2>
+                <p>Browse community plugins (coming soon)</p>
+            </div>
+        </section>
+
+        <!-- Settings Tab -->
+        <section id="settings" class="tab-content">
+            <div class="grid-2col">
+                <div class="card">
+                    <h2>Server Settings</h2>
+                    <div class="form-group">
+                        <label>Port</label>
+                        <input type="number" value="5000" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>CORS Enabled</label>
+                        <input type="checkbox" checked disabled>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>About</h2>
+                    <p><strong>K7BAT uConsole Status</strong></p>
+                    <p>Version: <span id="settings-version">1.3.0</span></p>
+                    <p>A comprehensive web interface for WiFi pentesting and system monitoring.</p>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <h2>System Information</h2>
+                <pre class="info-box" id="system-info">Loading...</pre>
+                <button class="action-btn" onclick="loadSystemInfo()">Refresh Info</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="dashboard-footer">
+        <span>© 2026 K7BAT uConsole Status App</span>
+        <span>Status: <span id="connection-status">Connected</span></span>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
