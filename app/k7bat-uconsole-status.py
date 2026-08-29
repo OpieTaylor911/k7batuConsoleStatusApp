@@ -29,7 +29,7 @@ from pathlib import Path
 # Import v2.0.0 UI components
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
-    from widgets.cards import MetricCard, StatusCard, DeviceRow, SectionHeader, ActionButton
+    from widgets.cards import MetricCard, StatusCard, DeviceRow, SectionHeader, ActionButton, DashboardPage, SidebarNavigation
 except ImportError:
     # Fallback: define minimal classes if widgets not available
     class MetricCard(Gtk.Box):
