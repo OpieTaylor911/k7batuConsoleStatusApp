@@ -1576,7 +1576,7 @@ class App(Gtk.Window):
         self.high_contrast_enabled = self.settings.get("high_contrast_enabled", False)
 
         # Load v2.0.0 centralized theme with fallback
-        theme_path = APP_DIR / "styles" / "theme.css"
+        theme_path = APP_DIR / "theme.css"
         if theme_path.exists():
             provider = Gtk.CssProvider()
             try:
@@ -1605,450 +1605,29 @@ class App(Gtk.Window):
         # Apply UI mode settings from loaded state
         self.apply_ui_mode_settings()
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        outer.set_border_width(4)
-        self.add(outer)
+        # Create main layout with sidebar navigation (v2.0.0 modern layout)
+        main_layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        self.add(main_layout)
 
-        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        outer.pack_start(layout, True, True, 0)
+        # Sidebar with navigation
+        self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.sidebar.set_size_request(160, -1)
+        self.sidebar.get_style_context().add_class('sidebar')
+        main_layout.pack_start(self.sidebar, False, False, 0)
 
-        main_scroll = Gtk.ScrolledWindow()
-        main_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        main_scroll.set_hexpand(True)
-        main_scroll.set_vexpand(True)
-        layout.pack_start(main_scroll, True, True, 0)
+        # Stack for page content
+        self.stack = Gtk.Stack()
+        self.stack.set_hexpand(True)
+        self.stack.set_vexpand(True)
+        main_layout.pack_start(self.stack, True, True, 0)
 
-        main_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        main_scroll.add(main_col)
+        # Dashboard page (v2.0.0 modern layout)
+        dashboard_page = DashboardPage()
+        dashboard_page.get_style_context().add_class('dashboard-page')
+        self.stack.add_named(dashboard_page, 'dashboard')
 
-        right_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        right_controls.set_size_request(300, -1)
-        layout.pack_start(right_controls, False, False, 0)
-
-        top_band = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        main_col.pack_start(top_band, False, False, 0)
-
-        top_left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        top_band.pack_start(top_left_col, True, True, 0)
-
-        tactical_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        tactical_col.set_size_request(230, -1)
-        tactical_col.set_valign(Gtk.Align.START)
-        top_band.pack_start(tactical_col, False, False, 0)
-
-        logo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        right_controls.pack_start(logo_row, False, False, 0)
-
-        logo_candidates = [
-            Path(__file__).resolve().parent / "k7bat-callsign-logo.png",
-            Path(__file__).resolve().parent / "k7bat-callsign-logo.svg",
-        ]
-        for logo_path in logo_candidates:
-            if not logo_path.exists():
-                continue
-            try:
-                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    str(logo_path),
-                    width=190,
-                    height=52,
-                    preserve_aspect_ratio=True,
-                )
-                logo = Gtk.Image.new_from_pixbuf(pix)
-                logo_row.pack_start(logo, False, False, 0)
-                break
-            except Exception:
-                continue
-
-        settings_btn = Gtk.Button(label="Settings")
-        self.decorate_button(settings_btn, "settings", "Settings")
-        settings_btn.connect("clicked", self.open_settings_dialog)
-        logo_row.pack_start(settings_btn, False, False, 0)
-
-        exit_btn = Gtk.Button(label="Exit")
-        self.decorate_button(exit_btn, "power", "Exit")
-        exit_btn.connect("clicked", lambda _b: Gtk.main_quit())
-        logo_row.pack_start(exit_btn, False, False, 0)
-
-        _, version_row = self.make_icon_info_row(right_controls, f"v{APP_VERSION} • K7BAT", "dashboard", 14)
-        version_row.get_style_context().add_class("subtle")
-
-        # Auto-update row with status and buttons
-        update_header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        right_controls.pack_start(update_header_row, False, False, 0)
-        self.last_update, update_row = self.make_icon_info_row(right_controls, "Updated: --", "dashboard", 14)
-        update_row.get_style_context().add_class("subtle")
-
-        # Add update controls below status
-        _, update_status_row = self.make_icon_info_row(right_controls, "Update: ready", "download", 12)
-        update_status_row.get_style_context().add_class("subtle")
-        self.update_status_label = update_status_row
-
-        profile_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        right_controls.pack_start(profile_row, False, False, 0)
-        profile_row.pack_start(self.make_icon_label("Profile:", "power", 14), False, False, 0)
-        self.profile_combo = Gtk.ComboBoxText()
-        self.profile_combo.append("custom", "Custom")
-        for pid, preset in PROFILE_PRESETS.items():
-            self.profile_combo.append(pid, preset["label"])
-        self.profile_combo.set_active_id(self.settings.get("profile", "custom"))
-        self.profile_combo.set_size_request(140, -1)
-        self.profile_combo.connect("changed", self.on_profile_changed)
-        profile_row.pack_start(self.profile_combo, True, True, 0)
-
-        snapshot_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        right_controls.pack_start(snapshot_row, False, False, 0)
-
-        export_btn = Gtk.Button(label="Export")
-        self.decorate_button(export_btn, "dashboard", "Export")
-        export_btn.connect("clicked", self.on_export_profile)
-        snapshot_row.pack_start(export_btn, True, True, 0)
-
-        import_btn = Gtk.Button(label="Import")
-        self.decorate_button(import_btn, "terminal", "Import")
-        import_btn.connect("clicked", self.on_import_profile)
-        snapshot_row.pack_start(import_btn, True, True, 0)
-
-        snapshots_btn = Gtk.Button(label="Snapshots")
-        self.decorate_button(snapshots_btn, "dashboard", "Snapshots")
-        snapshots_btn.connect("clicked", self.open_snapshots_dialog)
-        snapshot_row.pack_start(snapshots_btn, True, True, 0)
-
-        mission_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        right_controls.pack_start(mission_row, False, False, 0)
-        self.mission_start_btn = Gtk.Button(label="Record")
-        self.decorate_button(self.mission_start_btn, "radar", "Record")
-        self.mission_start_btn.connect("clicked", self.on_start_mission)
-        mission_row.pack_start(self.mission_start_btn, True, True, 0)
-
-        self.mission_stop_btn = Gtk.Button(label="Stop")
-        self.decorate_button(self.mission_stop_btn, "power", "Stop")
-        self.mission_stop_btn.connect("clicked", self.on_stop_mission)
-        self.mission_stop_btn.set_sensitive(False)
-        mission_row.pack_start(self.mission_stop_btn, True, True, 0)
-
-        self.mission_status, mission_status_row = self.make_icon_info_row(
-            right_controls,
-            "Mission: idle",
-            "dashboard",
-            14,
-        )
-        mission_status_row.get_style_context().add_class("subtle")
-
-        hotkeys_label, hotkeys_row = self.make_icon_info_row(
-            right_controls,
-            "Hotkeys: Alt+1/2/3 presets • Alt+0 custom",
-            "terminal",
-            14,
-            wrap=True,
-        )
-        hotkeys_row.get_style_context().add_class("subtle")
-
-        service_header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        right_controls.pack_start(service_header_row, False, False, 0)
-        service_header_row.pack_start(self.make_icon_label("Svc:", "network", 14), False, False, 0)
-
-        for svc in ("gpsd", "bluetooth", "readsb"):
-            group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
-            dot = Gtk.Label(label="●")
-            stat = Gtk.Label(label=svc)
-            stat.set_xalign(0)
-            stat.set_ellipsize(Pango.EllipsizeMode.END)
-            stat.set_single_line_mode(True)
-            stat.get_style_context().add_class("subtle")
-            self.service_dots[svc] = dot
-            self.service_labels[svc] = stat
-            group.pack_start(dot, False, False, 0)
-            group.pack_start(stat, False, False, 0)
-            service_header_row.pack_start(group, False, False, 0)
-
-        self.restart_combo = Gtk.ComboBoxText()
-        for svc in ("gpsd", "gpsd.socket", "bluetooth", "readsb", "NetworkManager"):
-            self.restart_combo.append_text(svc)
-        self.restart_combo.set_active(0)
-        self.restart_combo.set_size_request(100, -1)
-        restart_btn = Gtk.Button(label="Restart")
-        self.decorate_button(restart_btn, "power", "Restart")
-        restart_btn.connect("clicked", self.on_restart_selected)
-
-        service_action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        service_action_row.pack_start(self.restart_combo, True, True, 0)
-        service_action_row.pack_start(restart_btn, False, False, 0)
-        right_controls.pack_start(service_action_row, False, False, 0)
-
-        self.status, status_row = self.make_icon_info_row(right_controls, "Ready", "radar", 14)
-        status_row.get_style_context().add_class("subtle")
-
-        self.last_update, update_row = self.make_icon_info_row(right_controls, "Updated: --", "dashboard", 14)
-        update_row.get_style_context().add_class("subtle")
-
-        self.header_plugin_info, plugin_row = self.make_icon_info_row(right_controls, "Plugins: loading", "terminal", 14)
-        plugin_row.get_style_context().add_class("subtle")
-
-        chips_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        top_left_col.pack_start(chips_box, False, False, 0)
-        for key, text in [
-            ("chip_fix", "GPS: --"),
-            ("chip_wifi", "Wi-Fi: --"),
-            ("chip_gpsd", "gpsd: --"),
-            ("chip_readsb", "readsb: --"),
-        ]:
-            chip = Gtk.Label(label=text)
-            chip.get_style_context().add_class("chip")
-            chip.get_style_context().add_class("chip-muted")
-            chips_box.pack_start(chip, False, False, 0)
-            self.chips[key] = chip
-
-        self.alert_summary = Gtk.Label(label="Alerts: monitoring enabled")
-        self.alert_summary.set_xalign(0)
-        self.alert_summary.get_style_context().add_class("subtle")
-        top_left_col.pack_start(self.alert_summary, False, False, 0)
-
-        tactical_hint = Gtk.Label(label="Tactical")
-        tactical_hint.set_xalign(0)
-        tactical_hint.get_style_context().add_class("subtle")
-        tactical_col.pack_start(tactical_hint, False, False, 0)
-
-        tactical_grid = Gtk.Grid(column_spacing=6, row_spacing=6)
-        tactical_grid.set_column_homogeneous(True)
-        tactical_col.pack_start(tactical_grid, False, False, 0)
-
-        # Wi-Fi scanning is now integrated into Tactical WiFi Attacks interface
-        # This frees up the top-left slot for future features
-        
-        tactical_net_btn = Gtk.Button(label="Net")
-        self.decorate_button(tactical_net_btn, "network", "Net")
-        tactical_net_btn.connect("clicked", self.open_connectivity_detail_dialog)
-        tactical_net_btn.set_hexpand(True)
-        tactical_grid.attach(tactical_net_btn, 0, 1, 1, 1)
-
-        tactical_gps_btn = Gtk.Button(label="GPS")
-        self.decorate_button(tactical_gps_btn, "satellite", "GPS")
-        tactical_gps_btn.connect("clicked", self.open_gps_quality_dialog)
-        tactical_gps_btn.set_hexpand(True)
-        tactical_grid.attach(tactical_gps_btn, 1, 0, 1, 1)
-
-        # Tactical WiFi Attack Tools button (replaces Updates button)
-        tactical_attack_btn = Gtk.Button(label="WiFi Attacks")
-        self.decorate_button(tactical_attack_btn, "wifi", "WiFi Attacks")
-        tactical_attack_btn.connect("clicked", self.open_tactical_wifi_attacks_fullscreen)
-        tactical_attack_btn.set_hexpand(True)
-        tactical_grid.attach(tactical_attack_btn, 1, 1, 1, 1)
-
-        metrics = Gtk.Grid(column_spacing=22, row_spacing=7)
-        top_left_col.pack_start(metrics, False, False, 2)
-        for i, (key, label) in enumerate([
-            ("cpu","CPU"), ("ram","RAM"), ("disk","NVMe"), ("battery","Battery")
-        ]):
-            row = Gtk.Box(spacing=8)
-            metric_icon = {
-                "cpu": "cpu",
-                "ram": "memory",
-                "disk": "nvme",
-                "battery": "battery",
-            }.get(key)
-            l = self.make_icon_label(label, metric_icon, 15)
-            l.get_style_context().add_class("metric")
-            v = Gtk.Label(label="—")
-            v.set_xalign(1.0)
-            row.pack_start(l, False, False, 0)
-            row.pack_end(v, True, True, 0)
-            metrics.attach(row, i % 2, i // 2, 1, 1)
-            self.labels[key] = v
-
-        panels = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        main_col.pack_start(panels, False, False, 2)
-
-        self.gps_box = self.make_frame(panels, "GPS / Services", "satellite")
-        self.net_box = self.make_frame(panels, "Network / Wireless", "network")
-
-        for key, label in [
-            ("fix","GPS Fix"), ("sats","Satellites"), ("gpsdev","GPS Device"),
-            ("pos","Position"), ("speed","Speed"), ("track","Heading"),
-            ("gps_quality","GPS Quality"),
-            ("dop_summary","DOP (H/V/P)"),
-            ("gpsd","gpsd"), ("readsb","readsb")
-        ]:
-            icon_name = {
-                "fix": "navigation",
-                "sats": "satellite",
-                "gpsdev": "terminal",
-                "pos": "map",
-                "speed": "radar",
-                "track": "navigation",
-                "gps_quality": "dashboard",
-                "dop_summary": "radar",
-                "gpsd": "radio-tower",
-                "readsb": "plane",
-            }.get(key)
-            self.add_row(self.gps_box, key, label, icon_name)
-
-        self.add_row(self.net_box, "ip", "IP", "network")
-        self.add_row(self.net_box, "eth", "Ethernet", "ethernet")
-        self.add_row(self.net_box, "bt", "Bluetooth", "bluetooth")
-        self.add_row(self.net_box, "bt_ctrl", "BT Ctrl", "radio-tower")
-        self.add_row(self.net_box, "wifi", "Wi-Fi", "wifi")
-        self.add_row(self.net_box, "active_link", "Active Link", "network")
-        self.add_row(self.net_box, "failover", "Failover", "switch-horizontal")
-        self.add_row(self.net_box, "hotspot_watchdog", "Hotspot Watch", "shield")
-
-        radio_frame = Gtk.Frame()
-        radio_frame.set_label_widget(self.make_icon_label("HackerGadgets AIO V2 Radio Power", "radio", 15))
-        main_col.pack_start(radio_frame, False, False, 0)
-        radio_box = Gtk.Box(spacing=10)
-        radio_box.set_border_width(7)
-        radio_frame.add(radio_box)
-
-        if aio_available():
-            for dev in ("GPS","SDR","LORA", "USB"):
-                group = Gtk.Box(spacing=5)
-                dot = Gtk.Label(label="●")
-                text = Gtk.Label(label=self.radio_display_name(dev))
-                sw = Gtk.Switch()
-                sw.connect("notify::active", self.on_radio_switch_toggled, dev)
-                self.radio_dots[dev] = dot
-                self.radio_text[dev] = text
-                self.radio_switches[dev] = sw
-                group.pack_start(dot, False, False, 0)
-                group.pack_start(text, False, False, 3)
-                group.pack_start(sw, False, False, 0)
-                radio_box.pack_start(group, True, True, 0)
-
-            bt_group = Gtk.Box(spacing=5)
-            bt_dot = Gtk.Label(label="●")
-            bt_text = Gtk.Label(label="Bluetooth")
-            bt_sw = Gtk.Switch()
-            bt_sw.connect("notify::active", self.on_bluetooth_switch_toggled)
-            bt_group.pack_start(bt_dot, False, False, 0)
-            bt_group.pack_start(bt_text, False, False, 3)
-            bt_group.pack_start(bt_sw, False, False, 0)
-            radio_box.pack_start(bt_group, True, True, 0)
-            self.bt_switch = bt_sw
-            self.bt_toggle_dot = bt_dot
-            self.bt_toggle_label = bt_text
-            self.bt_toggle_group = bt_group
-        else:
-            lab = Gtk.Label(label="aiov2_ctl not detected — radio controls unavailable")
-            lab.get_style_context().add_class("subtle")
-            radio_box.pack_start(lab, True, True, 0)
-
-        apps = Gtk.FlowBox()
-        apps.set_max_children_per_line(6)
-        apps.set_selection_mode(Gtk.SelectionMode.NONE)
-        apps.set_column_spacing(6)
-        apps.set_row_spacing(6)
-        main_col.pack_start(apps, False, False, 0)
-        buttons = [
-            ("GPS Nav",None,None),
-            (
-                "Pure Maps",
-                ["pure-maps", "puremaps", "flatpak:app.puremaps.PureMaps"],
-                ["pure-maps", "puremaps", "flatpak:app.puremaps.PureMaps"],
-            ),
-            (
-                "Organic Maps",
-                ["organicmaps", "omaps", "OMaps", "flatpak:app.organicmaps.desktop"],
-                ["organicmaps", "omaps", "OMaps", "flatpak:app.organicmaps.desktop"],
-            ),
-            (
-                "PyGPS",
-                ["pygpsclient", "/usr/local/bin/pygpsclient"],
-                ["pygpsclient", "/usr/local/bin/pygpsclient"],
-            ),
-            ("OSM Scout","flatpak run io.github.rinigus.OSMScoutServer","flatpak:io.github.rinigus.OSMScoutServer"),
-            (
-                "SDR++",
-                [
-                    "sdrpp",
-                    "sdr++",
-                    "sdrpp-qt",
-                    "flatpak:org.sdrpp.sdrpp",
-                    "flatpak:org.sdrpp.SDRPlusPlus",
-                ],
-                [
-                    "sdrpp",
-                    "sdr++",
-                    "sdrpp-qt",
-                    "flatpak:org.sdrpp.sdrpp",
-                    "flatpak:org.sdrpp.SDRPlusPlus",
-                ],
-            ),
-            ("GQRX","gqrx","gqrx"),
-            ("ADS-B","xdg-open http://127.0.0.1/tar1090/","xdg-open"),
-            ("Wireshark","wireshark","wireshark"),
-            ("Kismet","xdg-open http://127.0.0.1:2501/","xdg-open"),
-            ("AIO Control","aiov2_ctl --gui","aiov2_ctl"),
-        ]
-        for name, cmd, check in buttons:
-            b = Gtk.Button(label=name)
-            launcher_icon = {
-                "GPS Nav": "navigation",
-                "Pure Maps": "map",
-                "Organic Maps": "map",
-                "PyGPS": "satellite",
-                "OSM Scout": "radar",
-                "SDR++": "radio",
-                "GQRX": "radio-tower",
-                "ADS-B": "plane",
-                "Wireshark": "network",
-                "Kismet": "wifi",
-                "AIO Control": "power",
-            }.get(name)
-            self.decorate_button(b, launcher_icon, name)
-            self.builtin_buttons[name] = b
-            if name == "GPS Nav":
-                self.launch_buttons[name] = b
-                b.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
-                apps.add(b)
-                continue
-
-            if isinstance(cmd, (list, tuple)):
-                resolved = resolve_first_command(cmd)
-                if not resolved and name == "SDR++":
-                    discovered = discover_flatpak_app_id(["sdrpp", "sdr++", "sdr plus plus"])
-                    if discovered:
-                        resolved = f"flatpak run {discovered}"
-                available = bool(resolved)
-                self.launch_actions[name] = resolved
-                b.set_sensitive(available)
-                if available:
-                    b.set_tooltip_text(f"Launch {name}")
-                else:
-                    b.set_tooltip_text(f"Missing dependency: {candidate_label(check)}")
-                b.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
-                apps.add(b)
-                continue
-
-            available = launch_target_available(check)
-            b.set_sensitive(available)
-            self.launch_actions[name] = cmd
-            if available:
-                b.set_tooltip_text(f"Launch {name}")
-            else:
-                b.set_tooltip_text(f"Missing dependency: {candidate_label(check)}")
-            b.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
-            apps.add(b)
-
-        self.plugin_box = Gtk.FlowBox()
-        self.plugin_box.set_max_children_per_line(5)
-        self.plugin_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.plugin_box.set_column_spacing(2)
-        self.plugin_box.set_row_spacing(2)
-        right_controls.pack_start(self.plugin_box, False, False, 0)
-        self.refresh_plugin_buttons()
-
-        self.show_all()
-        GLib.idle_add(self.fullscreen)
-        if self.settings.get("profile") in PROFILE_PRESETS:
-            self.apply_profile(self.settings.get("profile"), announce=False)
-            self._updating_profile_combo = True
-            self.profile_combo.set_active_id(self.settings.get("profile"))
-            self._updating_profile_combo = False
-        else:
-            self.refresh_profile_visibility()
-        self.refresh_gps_nav_button()
-        self.refresh_async()
-        GLib.timeout_add_seconds(7, self.check_for_new_release_once)
-        GLib.timeout_add_seconds(REFRESH_SECONDS, self.refresh_async)
+        # Add sidebar navigation items
+        self.add_nav_button('Dashboard', 'grid')
 
     def selected_gps_option(self):
         selected = self.settings.get("gps_nav_app", "navit")
@@ -2056,6 +1635,14 @@ class App(Gtk.Window):
             if opt["id"] == selected:
                 return opt
         return GPS_NAV_OPTIONS[0]
+
+    def add_nav_button(self, label, icon):
+        """Add navigation button to sidebar"""
+        btn = Gtk.Button(label=f'{icon}  {label}')
+        btn.set_halign(Gtk.Align.START)
+        btn.get_style_context().add_class('sidebar-item')
+        btn.connect('clicked', lambda _b: self.stack.set_visible_child_name(label.lower()))
+        self.sidebar.pack_start(btn, False, False, 0)
 
     def apply_profile(self, profile_id, announce=True):
         preset = PROFILE_PRESETS.get(profile_id)
