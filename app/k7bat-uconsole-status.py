@@ -15,6 +15,7 @@ from gi.repository import Gtk, GLib, Gdk, GdkPixbuf, Pango
 
 import json
 import os
+import sys
 import re
 import shutil
 import subprocess
@@ -25,8 +26,39 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+# Import v2.0.0 UI components
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from widgets.cards import MetricCard, StatusCard, DeviceRow, SectionHeader, ActionButton
+except ImportError:
+    # Fallback: define minimal classes if widgets not available
+    class MetricCard(Gtk.Box):
+        def __init__(self, label=None, value="", subtitle=None):
+            super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            self.value_label = Gtk.Label(label=value)
+            self.label_label = Gtk.Label(label=label) if label else None
+    class StatusCard(Gtk.Box):
+        def __init__(self, title="", status=None):
+            super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            self.title_label = Gtk.Label(label=title)
+            self.status_label = Gtk.Label(label=status) if status else None
+    class DeviceRow(Gtk.Box):
+        def __init__(self, name="", value=None):
+            super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            self.name_label = Gtk.Label(label=name)
+            self.value_label = Gtk.Label(label=value) if value else None
+    class SectionHeader(Gtk.Box):
+        def __init__(self, title=""):
+            super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            label = Gtk.Label(label=title)
+    class ActionButton(Gtk.Button):
+        def __init__(self, label=None):
+            super().__init__()
+            if label:
+                self.set_label(label)
+
 APP_NAME = "K7BAT uConsole Status App"
-APP_VERSION = "1.2.1"
+APP_VERSION = "2.0.0"
 REFRESH_SECONDS = 4
 SERVICE_PRIV_HINT = "Enable passwordless service control (sudoers) for bluetooth/readsb."
 DEFAULT_GITHUB_REPO = "OpieTaylor911/k7batuConsoleStatusApp"
@@ -1543,12 +1575,32 @@ class App(Gtk.Window):
         self.touch_mode_enabled = self.settings.get("touch_mode_enabled", False)
         self.high_contrast_enabled = self.settings.get("high_contrast_enabled", False)
 
-        provider = Gtk.CssProvider()
-        provider.load_from_data(CSS)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        # Load v2.0.0 centralized theme with fallback
+        theme_path = APP_DIR / "styles" / "theme.css"
+        if theme_path.exists():
+            provider = Gtk.CssProvider()
+            try:
+                provider.load_from_path(str(theme_path))
+                Gtk.StyleContext.add_provider_for_screen(
+                    Gdk.Screen.get_default(), provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
+            except Exception as e:
+                # Fallback to inline CSS on error
+                provider = Gtk.CssProvider()
+                provider.load_from_data(CSS)
+                Gtk.StyleContext.add_provider_for_screen(
+                    Gdk.Screen.get_default(), provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
+        else:
+            # Use inline CSS if theme file not found
+            provider = Gtk.CssProvider()
+            provider.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
         
         # Apply UI mode settings from loaded state
         self.apply_ui_mode_settings()

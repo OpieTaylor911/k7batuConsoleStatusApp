@@ -1,10 +1,11 @@
-[Desktop Entry]
-Version=1.0
+﻿[Desktop Entry]
+Version=2.0.0
 Type=Application
-Name=K7BAT uConsole Status App
-Comment=System, GPS, network, Wi-Fi and HackerGadgets AIO V2 dashboard
+Name=K7BAT uConsole Status v2.0
+Comment=Modern GTK3 dashboard with new UI components for ClockworkPi uConsole
 Exec=/usr/local/bin/k7bat-uconsole-status
 Icon=/home/bcaddy/uconsole-k7bat/icons/k7bat-callsign-logo.png
 Terminal=false
 Categories=System;Utility;Network;
 StartupNotify=true
+X-GNOME-UsesNotifications=true

@@ -1,0 +1,252 @@
+﻿# Centralized GTK3 Theme for K7BAT Field Console
+
+/* Base colors - embedded console dark theme */
+@define-color bg-dark #0d1117;
+@define-color card-bg #161b22;
+@define-color border-color #30363d;
+@define-color text-normal #c9d1d9;
+@define-color text-primary #f0f6fc;
+@define-color accent-color #58a6ff;
+@define-color success-color #2ea043;
+@define-color warn-color #d29922;
+@define-color error-color #f85149;
+
+/* Window styling */
+window {
+  background-color: @bg-dark;
+  color: @text-normal;
+}
+
+/* Header bar - compact design */
+headerbar {
+  background-color: @card-bg;
+  border-bottom: 1px solid @border-color;
+  padding: 6px 12px;
+  min-height: 32px;
+}
+
+headerbar .title {
+  font-weight: bold;
+  color: @text-primary;
+  font-size: 11pt;
+}
+
+headerbar .subtitle {
+  font-size: 9pt;
+  color: @text-normal;
+  opacity: 0.8;
+}
+
+/* Sidebar navigation */
+sidebar {
+  background-color: #0a0e14;
+  border-right: 1px solid @border-color;
+}
+
+.sidebar-item {
+  padding: 10px 16px;
+  border-radius: 6px;
+  margin: 2px 8px;
+  color: @text-normal;
+}
+
+.sidebar-item:hover {
+  background-color: rgba(88, 166, 255, 0.1);
+  color: @accent-color;
+}
+
+.sidebar-item.active {
+  background-color: rgba(88, 166, 255, 0.15);
+  color: @text-primary;
+  border-left: 3px solid @accent-color;
+}
+
+/* Card widgets */
+.card {
+  background-color: @card-bg;
+  border: 1px solid @border-color;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.card-header {
+  font-weight: bold;
+  color: @text-primary;
+  font-size: 10pt;
+  margin-bottom: 8px;
+}
+
+/* Metric cards */
+.metric-card {
+  background-color: @card-bg;
+  border: 1px solid @border-color;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.metric-value {
+  font-size: 24pt;
+  font-weight: bold;
+  color: @text-primary;
+  font-family: monospace;
+}
+
+.metric-label {
+  font-size: 9pt;
+  color: @text-normal;
+  margin-top: 4px;
+}
+
+/* Status cards */
+.status-card {
+  background-color: @card-bg;
+  border: 1px solid @border-color;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+
+.status-icon {
+  font-size: 14pt;
+  margin-right: 8px;
+}
+
+/* Device rows */
+device-row {
+  background-color: @card-bg;
+  border: 1px solid @border-color;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+}
+
+.device-name {
+  font-weight: bold;
+  color: @text-primary;
+  font-size: 9pt;
+}
+
+.device-value {
+  font-family: monospace;
+  color: @text-normal;
+  font-size: 8pt;
+}
+
+/* Section headers */
+section-header {
+  font-weight: bold;
+  color: @accent-color;
+  font-size: 10pt;
+  margin: 16px 0 8px 0;
+  border-bottom: 1px solid @border-color;
+  padding-bottom: 4px;
+}
+
+/* Action buttons */
+actionbutton {
+  background-color: rgba(88, 166, 255, 0.1);
+  color: @accent-color;
+  border: 1px solid @accent-color;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-weight: bold;
+}
+
+actionbutton:hover {
+  background-color: rgba(88, 166, 255, 0.2);
+}
+
+actionbutton:active {
+  background-color: @accent-color;
+  color: @bg-dark;
+}
+
+/* Status dots */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.status-dot.good {
+  background-color: @success-color;
+}
+
+.status-dot.warn {
+  background-color: @warn-color;
+}
+
+.status-dot.bad {
+  background-color: @error-color;
+}
+
+.status-dot.muted {
+  background-color: #6e7681;
+}
+
+/* Navigation stack */
+stack-switcher {
+  background-color: @card-bg;
+  border-bottom: 1px solid @border-color;
+  padding: 4px;
+}
+
+.stack-page {
+  padding: 12px;
+}
+
+/* Scrollbars */
+scrollbar slider {
+  background-color: @border-color;
+  border-radius: 3px;
+}
+
+scrollbar trough {
+  background-color: @bg-dark;
+}
+
+/* Buttons */
+button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid @border-color;
+  background-color: @card-bg;
+  color: @text-normal;
+}
+
+button.primary {
+  background-color: @accent-color;
+  color: @bg-dark;
+  font-weight: bold;
+}
+
+button.danger {
+  background-color: @error-color;
+  color: @bg-dark;
+}
+
+/* Labels */
+label {
+  color: @text-normal;
+}
+
+label.title {
+  color: @text-primary;
+  font-weight: bold;
+  font-size: 12pt;
+}
+
+/* Notebook tabs */
+notebook tab {
+  padding: 8px 16px;
+  border-radius: 4px 4px 0 0;
+  background-color: @card-bg;
+  color: @text-normal;
+}
+
+notebook tab:checked {
+  background-color: @bg-dark;
+  color: @text-primary;
+  border-bottom: 2px solid @accent-color;
+}
