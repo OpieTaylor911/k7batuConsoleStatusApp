@@ -70,6 +70,17 @@ Get-ChildItem -Path $projectRoot -Recurse -Include "*.sh", "k7bat-uconsole-statu
     }
 }
 
+# Remove UTF-8 BOM from desktop files before upload
+Get-ChildItem -Path $projectRoot -Recurse -Include "*.desktop" | ForEach-Object {
+    $content = [System.IO.File]::ReadAllBytes($_.FullName)
+    $bom = New-Object byte[] 3 @(0xEF, 0xBB, 0xBF)
+    if ($content.Length -ge 3 -and $content[0] -eq $bom[0] -and $content[1] -eq $bom[1] -and $content[2] -eq $bom[2]) {
+        $newContent = $content[3..($content.Length-1)]
+        [System.IO.File]::WriteAllBytes($_.FullName, $newContent)
+        Write-Host "   Removed BOM from: $($_.Name)"
+    }
+}
+
 if (-not $SkipSync) {
     if ($UpdateOnly) {
         Write-Host "==> Updating only changed files (no full reinstall)"

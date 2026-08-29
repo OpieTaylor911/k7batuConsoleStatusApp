@@ -146,8 +146,12 @@ ln -sfn /usr/local/bin/k7bat-uconsole-status /usr/local/bin/uconsole-dashboard
 
 install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.svg" \
   /usr/share/icons/hicolor/scalable/apps/k7bat-uconsole-status.svg
-install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
-  /usr/share/applications/k7bat-uconsole-status.desktop
+
+# Remove UTF-8 BOM from desktop file before installing (if present)
+DESKTOP_FILE_TMP=$(mktemp)
+cat "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" | sed '1s/^\xef\xbb\xbf//' > "$DESKTOP_FILE_TMP"
+install -m 0644 "$DESKTOP_FILE_TMP" /usr/share/applications/k7bat-uconsole-status.desktop
+rm -f "$DESKTOP_FILE_TMP"
 chmod 0644 /usr/share/applications/k7bat-uconsole-status.desktop
 
 if [[ -n "${GUI_USER:-}" ]]; then
