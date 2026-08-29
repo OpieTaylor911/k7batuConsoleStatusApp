@@ -1,7 +1,7 @@
 param(
     [string]$HostAlias = "uconsole",
     [string]$LocalIconDir = "assets/icons",
-    [string]$RemoteIconDir = "/opt/k7bat-uconsole-status/icons"
+    [string]$RemoteIconDir = "/home/bcaddy/uconsole-k7bat/app/icons"
 )
 
 $ErrorActionPreference = "Stop"

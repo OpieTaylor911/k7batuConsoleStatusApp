@@ -10,7 +10,7 @@
 set -Eeuo pipefail
 
 LOG="/var/log/k7bat-wifi-install.log"
-K7DIR="/opt/k7bat-wifi"
+K7DIR="/home/bcaddy/uconsole-k7bat/wifi"
 BINDIR="/usr/local/bin"
 CONFDIR="/etc/k7bat-wifi"
 CAPDIR="/var/lib/k7bat-wifi/captures"

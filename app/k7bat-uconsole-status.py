@@ -31,8 +31,14 @@ REFRESH_SECONDS = 4
 SERVICE_PRIV_HINT = "Enable passwordless service control (sudoers) for bluetooth/readsb."
 DEFAULT_GITHUB_REPO = "OpieTaylor911/k7batuConsoleStatusApp"
 CONFIG_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "settings.json"
-PLUGINS_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "plugins.json"
-DEFAULT_PLUGINS_PATH = Path(__file__).resolve().parent / "plugins.default.json"
+# Plugins are loaded from app/plugins/ and user plugins from /home/bcaddy/uconsole-k7bat/plugins/
+APP_DIR = Path(__file__).resolve().parent
+PLUGINS_PATH = APP_DIR / "plugins.json"
+DEFAULT_PLUGINS_PATH = PLUGINS_PATH
+# User-installed plugins directory (separate from core app)
+USER_PLUGIN_DIRS = [
+    Path("/home/bcaddy/uconsole-k7bat/plugins"),  # External GitHub plugins
+]
 PROFILE_SNAPSHOT_PATH = Path.home() / ".config" / "k7bat-uconsole-status" / "profile-snapshot.json"
 PROFILE_SNAPSHOT_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "snapshots"
 MISSION_RECORD_DIR = Path.home() / ".config" / "k7bat-uconsole-status" / "missions"
@@ -169,7 +175,8 @@ def load_settings():
     try:
         if not CONFIG_PATH.exists():
             return default
-        data = json.loads(CONFIG_PATH.read_text())
+        # Handle UTF-8 BOM by using utf-8-sig encoding
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
         if not isinstance(data, dict):
             return default
         merged = {**default, **data}
@@ -184,7 +191,8 @@ def load_settings():
 def save_settings(settings):
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(json.dumps(settings, indent=2) + "\n")
+        # Write with Unix line endings and no BOM
+        CONFIG_PATH.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     except Exception:
         pass
 
@@ -251,7 +259,8 @@ def load_plugins():
         source = PLUGINS_PATH if PLUGINS_PATH.exists() else DEFAULT_PLUGINS_PATH
         if not source.exists():
             return []
-        data = json.loads(source.read_text())
+        # Handle UTF-8 BOM by using utf-8-sig encoding
+        data = json.loads(source.read_text(encoding="utf-8-sig"))
         if not isinstance(data, list):
             return []
         out = []
@@ -259,16 +268,38 @@ def load_plugins():
             if not isinstance(item, dict):
                 continue
             label = str(item.get("label", "")).strip()
+            
+            # Support both shell commands and Python modules
             command = str(item.get("command", "")).strip()
-            if not label or not command:
+            plugin_type = str(item.get("type", "shell")).strip().lower()
+            
+            if not label:
                 continue
-            out.append({
-                "id": str(item.get("id") or label.lower().replace(" ", "-")),
-                "label": label,
-                "command": command,
-                "check": str(item.get("check", "")).strip(),
-                "tooltip": str(item.get("tooltip", "")).strip(),
-            })
+            
+            # For python plugins, require module path; for shell plugins, require command
+            if plugin_type == "python":
+                module_path = str(item.get("module", "")).strip()
+                if not module_path:
+                    continue
+                out.append({
+                    "id": str(item.get("id") or label.lower().replace(" ", "-")),
+                    "label": label,
+                    "type": "python",
+                    "module": module_path,
+                    "check": str(item.get("check", "")).strip(),
+                    "tooltip": str(item.get("tooltip", "")).strip(),
+                })
+            else:
+                # Shell command plugin (default)
+                if not command:
+                    continue
+                out.append({
+                    "id": str(item.get("id") or label.lower().replace(" ", "-")),
+                    "label": label,
+                    "command": command,
+                    "check": str(item.get("check", "")).strip(),
+                    "tooltip": str(item.get("tooltip", "")).strip(),
+                })
         return out
     except Exception:
         return []
@@ -276,7 +307,8 @@ def load_plugins():
 def save_plugins(plugins):
     try:
         PLUGINS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        PLUGINS_PATH.write_text(json.dumps(plugins, indent=2) + "\n")
+        # Write with Unix line endings and no BOM
+        PLUGINS_PATH.write_text(json.dumps(plugins, indent=2) + "\n", encoding="utf-8")
         return True
     except Exception:
         return False
@@ -330,7 +362,8 @@ def get_available_backups(limit=20):
     backups = []
     for f in sorted(BACKUP_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
         try:
-            data = json.loads(f.read_text())
+            # Handle UTF-8 BOM
+            data = json.loads(f.read_text(encoding="utf-8-sig"))
             backups.append({
                 "path": str(f),
                 "version": data.get("version", "unknown"),
@@ -346,7 +379,8 @@ def get_latest_backup():
     if not LATEST_BACKUP_FILE.exists():
         return None
     try:
-        return json.loads(LATEST_BACKUP_FILE.read_text())
+        # Handle UTF-8 BOM
+        return json.loads(LATEST_BACKUP_FILE.read_text(encoding="utf-8-sig"))
     except Exception:
         return None
 
@@ -471,7 +505,8 @@ def rollback_to_backup(backup_path):
         if not Path(backup_path).exists():
             return False, "Backup file not found"
         
-        backup_data = json.loads(Path(backup_path).read_text())
+        # Handle UTF-8 BOM
+        backup_data = json.loads(Path(backup_path).read_text(encoding="utf-8-sig"))
         app_dir = Path(__file__).resolve().parent
         
         # In a real implementation, you would restore files from the backup
@@ -498,7 +533,8 @@ def import_profile_snapshot(snapshot_path=None):
         source = Path(snapshot_path) if snapshot_path else PROFILE_SNAPSHOT_PATH
         if not source.exists():
             return False, None, None, f"Snapshot not found: {source}"
-        data = json.loads(source.read_text())
+        # Handle UTF-8 BOM
+        data = json.loads(source.read_text(encoding="utf-8-sig"))
         if not isinstance(data, dict):
             return False, None, None, "Snapshot file is invalid"
         settings = data.get("settings", {})
@@ -560,7 +596,8 @@ def save_named_snapshot(settings, plugins, name, source="manual", tags=None):
             name=safe_name,
             tags=normalize_snapshot_tags(tags),
         )
-        path.write_text(json.dumps(payload, indent=2) + "\n")
+        # Write with Unix line endings and no BOM
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         if source == "auto":
             prune_auto_snapshots(AUTO_SNAPSHOT_KEEP_PER_TAG)
         return True, path
@@ -579,7 +616,8 @@ def list_profile_snapshots(limit=100):
     for p in files:
         label = p.stem
         try:
-            data = json.loads(p.read_text())
+            # Handle UTF-8 BOM
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict):
                 nm = data.get("name")
                 src = data.get("source")
@@ -1243,7 +1281,8 @@ def ensure_sdrpp_audio_sink_config():
     try:
         if not cfg.exists():
             return
-        raw = json.loads(cfg.read_text())
+        # Handle UTF-8 BOM
+        raw = json.loads(cfg.read_text(encoding="utf-8-sig"))
         if not isinstance(raw, dict):
             return
         streams = raw.get("streams")
@@ -1285,6 +1324,27 @@ def show_sdr_launch_checklist(app):
     dlg.run()
     dlg.destroy()
 
+def show_remote_assist_complete(app, output_file):
+    """Show dialog when diagnostics bundle is created."""
+    dlg = Gtk.MessageDialog(
+        transient_for=app,
+        flags=0,
+        message_type=Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK,
+        text="Diagnostics Bundle Created",
+    )
+    file_size = Path(output_file).stat().st_size if Path(output_file).exists() else 0
+    size_kb = file_size / 1024
+    
+    dlg.format_secondary_text(
+        f"Bundle saved to:\n{output_file}\n\n"
+        f"Size: {size_kb:.1f} KB\n\n"
+        "Share this file with your support contact. "
+        "They will provide a token to securely upload it."
+    )
+    dlg.run()
+    dlg.destroy()
+
 CSS = b"""
 window {
     background: #101318;
@@ -1303,6 +1363,18 @@ label {
 button {
     min-height: 26px;
     border-radius: 8px;
+}
+
+button {
+    padding: 4px 10px;
+    font-size: 13px;
+}
+
+/* Touch Mode - Larger hit targets */
+.touch-mode button {
+    min-height: 48px;
+    padding: 8px 16px;
+    font-size: 18px;
 }
 
 .title {
@@ -1329,6 +1401,12 @@ button {
     font-weight: 700;
 }
 
+/* Touch Mode - Larger chips */
+.touch-mode .chip {
+    padding: 6px 12px;
+    font-size: 16px;
+}
+
 .chip-good {
     background: #143f2c;
     color: #86e4b6;
@@ -1347,6 +1425,65 @@ button {
 .chip-muted {
     background: #26303b;
     color: #b9c3d1;
+}
+
+/* High Contrast Theme */
+.high-contrast window {
+    background: #000000;
+    color: #ffffff;
+}
+
+.high-contrast frame {
+    border-color: #ffffff;
+    border-width: 2px;
+}
+
+.high-contrast label {
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.high-contrast button {
+    min-height: 48px;
+    padding: 12px 24px;
+    background: #ffffff;
+    color: #000000;
+    font-weight: 700;
+    border-radius: 12px;
+    border-width: 3px;
+}
+
+.high-contrast .chip {
+    padding: 6px 12px;
+    font-size: 16px;
+    font-weight: 800;
+    border-width: 2px;
+}
+
+.high-contrast .chip-good {
+    background: #00ff00;
+    color: #000000;
+}
+
+.high-contrast .chip-warn {
+    background: #ffff00;
+    color: #000000;
+}
+
+.high-contrast .chip-bad {
+    background: #ff0000;
+    color: #000000;
+}
+
+/* Day/Night Theme Switcher */
+.night-mode window {
+    background: #101318;
+    color: #eaf0f7;
+}
+
+.day-mode window {
+    background: #f5f7fa;
+    color: #1a202c;
 }
 """
 
@@ -1401,9 +1538,10 @@ class App(Gtk.Window):
         self.mission_file_path = None
         self.mission_started_at = None
         self.mission_stats = {}
-        
-        # Hak5 Pineapple Modules integration
-        self.pineapple_modules_button = None
+
+        # Touch Mode State
+        self.touch_mode_enabled = self.settings.get("touch_mode_enabled", False)
+        self.high_contrast_enabled = self.settings.get("high_contrast_enabled", False)
 
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
@@ -1411,6 +1549,9 @@ class App(Gtk.Window):
             Gdk.Screen.get_default(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+        
+        # Apply UI mode settings from loaded state
+        self.apply_ui_mode_settings()
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.set_border_width(4)
@@ -1836,10 +1977,10 @@ class App(Gtk.Window):
             apps.add(b)
 
         self.plugin_box = Gtk.FlowBox()
-        self.plugin_box.set_max_children_per_line(1)
+        self.plugin_box.set_max_children_per_line(5)
         self.plugin_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.plugin_box.set_column_spacing(4)
-        self.plugin_box.set_row_spacing(4)
+        self.plugin_box.set_column_spacing(2)
+        self.plugin_box.set_row_spacing(2)
         right_controls.pack_start(self.plugin_box, False, False, 0)
         self.refresh_plugin_buttons()
 
@@ -1896,6 +2037,132 @@ class App(Gtk.Window):
             self.status.set_text("Profile: Custom")
             return
         self.apply_profile(profile_id, announce=True)
+
+    def on_touch_mode_toggled(self, _button):
+        """Toggle touch mode and update UI."""
+        self.touch_mode_enabled = not self.touch_mode_enabled
+        
+        # Update button label
+        if self.touch_mode_enabled:
+            self.touch_mode_btn.set_label("Touch Mode: ON")
+            self.status.set_text("Touch Mode enabled - Larger buttons active")
+        else:
+            self.touch_mode_btn.set_label("Touch Mode: OFF")
+            self.status.set_text("Touch Mode disabled")
+        
+        # Apply touch mode CSS class to window
+        if self.touch_mode_enabled:
+            self.get_style_context().add_class("touch-mode")
+        else:
+            self.get_style_context().remove_class("touch-mode")
+
+    def on_high_contrast_toggled(self, _button):
+        """Toggle high contrast mode and update UI."""
+        self.high_contrast_enabled = not self.high_contrast_enabled
+        
+        # Update button label
+        if self.high_contrast_enabled:
+            self.high_contrast_btn.set_label("High Contrast: ON")
+            self.status.set_text("High Contrast Mode enabled")
+        else:
+            self.high_contrast_btn.set_label("High Contrast: OFF")
+            self.status.set_text("High Contrast Mode disabled")
+        
+        # Apply high contrast CSS class to window
+        if self.high_contrast_enabled:
+            self.get_style_context().add_class("high-contrast")
+        else:
+            self.get_style_context().remove_class("high-contrast")
+
+    def on_theme_toggled(self, _button):
+        """Toggle between day and night themes."""
+        # Get current theme from button label
+        current_label = self.theme_btn.get_label()
+        
+        if "Night" in current_label:
+            # Switch to day mode
+            self.theme_btn.set_label("Theme: Day")
+            self.status.set_text("Day Theme enabled")
+            self.get_style_context().remove_class("night-mode")
+            self.get_style_context().add_class("day-mode")
+        else:
+            # Switch to night mode
+            self.theme_btn.set_label("Theme: Night")
+            self.status.set_text("Night Theme enabled")
+            self.get_style_context().remove_class("day-mode")
+            self.get_style_context().add_class("night-mode")
+
+    def apply_ui_mode_settings(self):
+        """Apply UI mode settings from dialog or initial load."""
+        # Apply touch mode
+        if self.touch_mode_enabled:
+            self.get_style_context().add_class("touch-mode")
+        else:
+            self.get_style_context().remove_class("touch-mode")
+        
+        # Apply high contrast mode
+        if self.high_contrast_enabled:
+            self.get_style_context().add_class("high-contrast")
+        else:
+            self.get_style_context().remove_class("high-contrast")
+        
+        # Apply theme mode
+        theme_mode = self.settings.get("theme_mode", "night")
+        if theme_mode == "day":
+            self.get_style_context().remove_class("night-mode")
+            self.get_style_context().add_class("day-mode")
+        else:
+            self.get_style_context().remove_class("day-mode")
+            self.get_style_context().add_class("night-mode")
+
+    def on_find_gps_apps_clicked(self, _button):
+        """Find GPS apps installed on the system."""
+        try:
+            result = subprocess.run(
+                ["find-gps-apps"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            output = result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr}"
+            
+            # Create a dialog to show the results
+            dlg = Gtk.Dialog(title="GPS App Discovery Results", transient_for=self, flags=0)
+            dlg.add_buttons("Close", Gtk.ResponseType.CLOSE)
+            content = dlg.get_content_area()
+            content.set_spacing(8)
+            
+            # Add scrollable text view for output
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_min_content_height(300)
+            scroll.set_min_content_width(500)
+            content.pack_start(scroll, True, True, 0)
+            
+            text_view = Gtk.TextView()
+            text_view.set_monospace(True)
+            text_view.set_editable(False)
+            scroll.add(text_view)
+            
+            buf = text_view.get_buffer()
+            buf.set_text(output)
+            
+            # Add info label
+            info = Gtk.Label(label="Scanning for GPS navigation applications...")
+            info.set_xalign(0)
+            content.pack_start(info, False, False, 0)
+            
+            dlg.show_all()
+            resp = dlg.run()
+            if resp == Gtk.ResponseType.CLOSE:
+                dlg.destroy()
+                
+            self.status.set_text("GPS app discovery complete")
+        except FileNotFoundError:
+            self.status.set_text("Error: find-gps-apps command not found")
+        except subprocess.TimeoutExpired:
+            self.status.set_text("Error: GPS app scan timed out")
+        except Exception as e:
+            self.status.set_text(f"Error: {str(e)}")
 
     def refresh_profile_visibility(self):
         profile_id = self.settings.get("profile", "custom")
@@ -1989,16 +2256,39 @@ class App(Gtk.Window):
             if not isinstance(item, dict):
                 continue
             label = str(item.get("label", "")).strip()
+            
+            # Support both shell commands and Python modules
             command = str(item.get("command", "")).strip()
-            if not label or not command:
+            plugin_type = str(item.get("type", "shell")).strip().lower()
+            
+            if not label:
                 continue
-            cleaned_plugins.append({
-                "id": str(item.get("id") or label.lower().replace(" ", "-")),
-                "label": label,
-                "command": command,
-                "check": str(item.get("check", "")).strip(),
-                "tooltip": str(item.get("tooltip", "")).strip(),
-            })
+            
+            # For shell plugins, require command; for python plugins, require module path
+            if plugin_type == "python":
+                module_path = str(item.get("module", "")).strip()
+                if not module_path:
+                    continue
+                plugin_entry = {
+                    "id": str(item.get("id") or label.lower().replace(" ", "-")),
+                    "label": label,
+                    "type": "python",
+                    "module": module_path,
+                    "check": str(item.get("check", "")).strip(),
+                    "tooltip": str(item.get("tooltip", "")).strip(),
+                }
+            else:
+                # Shell command plugin (default)
+                if not command:
+                    continue
+                plugin_entry = {
+                    "id": str(item.get("id") or label.lower().replace(" ", "-")),
+                    "label": label,
+                    "command": command,
+                    "check": str(item.get("check", "")).strip(),
+                    "tooltip": str(item.get("tooltip", "")).strip(),
+                }
+            cleaned_plugins.append(plugin_entry)
         self.plugins = cleaned_plugins
         save_plugins(self.plugins)
 
@@ -2246,27 +2536,41 @@ class App(Gtk.Window):
         self.header_plugin_info.set_text(f"Plugins: {len(self.plugins)} custom launcher(s)")
         self.plugin_box.show()
 
+        # Add Secure Remote Assist button
+        remote_assist_btn = Gtk.Button(label="Remote Assist")
+        remote_assist_btn.set_tooltip_text("Create diagnostics bundle for remote support")
+        remote_assist_btn.connect("clicked", self.on_remote_assist_clicked)
+        self.launch_actions["remote_assist"] = "remote_assist"
+        self.plugin_box.add(remote_assist_btn)
+
         for plugin in self.plugins:
             key = f"plugin:{plugin['id']}"
             b = Gtk.Button(label=plugin["label"])
-            check = plugin.get("check", "")
-            available = launch_target_available(check)
-            b.set_sensitive(available)
-            self.launch_actions[key] = plugin["command"] if available else None
+            
+            # Handle Python plugins differently from shell command plugins
+            plugin_type = plugin.get("type", "shell")
+            
+            if plugin_type == "python":
+                # Python module plugins don't need external dependencies check
+                available = True
+                b.set_sensitive(True)
+                self.launch_actions[key] = ("python_module", plugin["module"])
+            else:
+                # Shell command plugins check for dependencies
+                check = plugin.get("check", "")
+                available = launch_target_available(check)
+                b.set_sensitive(available)
+                self.launch_actions[key] = plugin["command"] if available else None
+            
             if not available:
                 b.set_tooltip_text(f"Missing dependency: {candidate_label(check)}")
             elif plugin.get("tooltip"):
                 b.set_tooltip_text(plugin["tooltip"])
             else:
                 b.set_tooltip_text(f"Launch {plugin['label']}")
+            
             b.connect("clicked", lambda _b, n=key: self.on_launch_clicked(n))
             self.plugin_box.add(b)
-        
-        # Add Hak5 Pineapple Modules button
-        self.pineapple_modules_button = Gtk.Button(label="Hak5 Pineapple")
-        self.decorate_button(self.pineapple_modules_button, "network-wireless", "Hak5 Pineapple")
-        self.pineapple_modules_button.connect("clicked", self.on_pineapple_clicked)
-        self.plugin_box.add(self.pineapple_modules_button)
 
         self.plugin_box.show_all()
 
@@ -2479,6 +2783,39 @@ class App(Gtk.Window):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def on_remote_assist_clicked(self, _button):
+        """Create diagnostics bundle for remote assistance."""
+        self.status.set_text("Creating diagnostics bundle...")
+        
+        def create_bundle():
+            try:
+                from app.plugins.remote_assist import DiagnosticsBundle
+                bundle = DiagnosticsBundle()
+                output_file = bundle.create_bundle()
+                
+                if output_file:
+                    GLib.idle_add(self.status.set_text, f"Diagnostics bundle created: {output_file}")
+                    GLib.idle_add(show_remote_assist_complete, self, output_file)
+                else:
+                    GLib.idle_add(self.status.set_text, "Failed to create diagnostics bundle")
+            except Exception as e:
+                import traceback
+                error_msg = str(e)[:100]
+                tb_str = "\n".join(traceback.format_exc().splitlines()[-3:])
+                self.status.set_text(f"Diagnostics failed: {error_msg}")
+                
+                # Log the full error
+                try:
+                    log_file = Path.home() / ".config" / "k7bat-uconsole-status" / "plugin_debug.log"
+                    log_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(log_file, "a") as f:
+                        f.write(f"[REMOTE ASSIST] Error: {e}\n{tb_str}\n")
+                except Exception:
+                    pass
+        
+        import threading
+        threading.Thread(target=create_bundle, daemon=True).start()
+    
     def on_launch_clicked(self, name):
         if name in self.sdr_dependent_names and self.latest_aio_states.get("SDR") is False:
             self.status.set_text(f"{name}: {self.sdr_hint}")
@@ -2489,6 +2826,76 @@ class App(Gtk.Window):
         cmd = self.launch_actions.get(name)
         if not cmd:
             self.status.set_text(f"{name}: no launch command configured")
+            return
+
+        # Handle Python module plugins (stored as tuples: ("python_module", module_path))
+        if isinstance(cmd, tuple) and len(cmd) == 2 and cmd[0] == "python_module":
+            module_path = cmd[1]
+            self.status.set_text(f"Launching {name}...")
+
+            def launch_python_plugin():
+                # Local debug log function for plugin errors
+                def debug_log(msg):
+                    try:
+                        log_file = Path.home() / ".config" / "k7bat-uconsole-status" / "plugin_debug.log"
+                        log_file.parent.mkdir(parents=True, exist_ok=True)
+                        with open(log_file, "a") as f:
+                            f.write(f"{msg}\n")
+                    except Exception:
+                        pass
+                
+                try:
+                    import sys
+                    import importlib
+                    from pathlib import Path
+                    app_dir = Path(__file__).resolve().parent
+
+                    # Add plugins directories to path (both core and user plugins)
+                    plugin_dirs = [
+                        app_dir / "plugins",  # Core plugins
+                        Path("/home/bcaddy/uconsole-k7bat/plugins"),  # User-installed plugins
+                    ]
+                    for pdir in plugin_dirs:
+                        if str(pdir) not in sys.path and pdir.exists():
+                            sys.path.insert(0, str(pdir))
+                            debug_log(f"[DEBUG] Added plugin path: {pdir}")
+
+                    debug_log(f"[DEBUG] Launching Python plugin: {name}")
+                    debug_log(f"[DEBUG] Module path: {module_path}")
+                    
+                    # Import and instantiate the plugin class
+                    module_name, class_name = module_path.rsplit('.', 1)
+                    debug_log(f"[DEBUG] Importing module: {module_name}, class: {class_name}")
+                    module = importlib.import_module(module_name)
+                    debug_log(f"[DEBUG] Module imported successfully: {module.__file__ if hasattr(module, '__file__') else 'builtin'}")
+                    plugin_class = getattr(module, class_name)
+                    debug_log("[DEBUG] Module and class loaded successfully")
+
+                    # Create and show the window on main thread using GLib.idle_add
+                    def create_window():
+                        try:
+                            debug_log(f"[DEBUG] Creating {class_name} instance...")
+                            window = plugin_class(self)
+                            debug_log("[DEBUG] Window created, calling show_all() and present()")
+                            window.show_all()
+                            window.present()
+                            debug_log("[DEBUG] Window shown successfully")
+                        except Exception as e:
+                            self.status.set_text(f"{name} error: {str(e)[:100]}")
+                            import traceback
+                            tb_str = "\n".join(traceback.format_exc().splitlines()[-5:])
+                            debug_log(f"[DEBUG] Window creation error: {e}\n{tb_str}")
+                    GLib.idle_add(create_window)
+                    debug_log("[DEBUG] GLib.idle_add(create_window) called")
+                except Exception as e:
+                    self.status.set_text(f"{name} error: {str(e)[:100]}")
+                    import traceback
+                    tb_lines = traceback.format_exc().splitlines()
+                    for line in tb_lines[-5:]:
+                        debug_log(line)
+
+            import threading
+            threading.Thread(target=launch_python_plugin, daemon=True).start()
             return
 
         if name == "SDR++" and "--autostart" not in str(cmd):
@@ -2722,22 +3129,35 @@ class App(Gtk.Window):
             self.status.set_text(f"Mission recorder stopped on write error: {str(e)[:100]}")
 
     def open_settings_dialog(self, _button):
+        # Use a notebook with tabs for better organization and fullscreen support
         dialog = Gtk.Dialog(
             title="Settings",
             transient_for=self,
             flags=0,
         )
         dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.OK)
+        
+        # Get the content area and set it to fill available space
         content = dialog.get_content_area()
         content.set_spacing(8)
+        content.set_border_width(8)
+        
+        # Create notebook (tabbed interface) with tabs at top
+        notebook = Gtk.Notebook()
+        notebook.set_tab_pos(Gtk.PositionType.TOP)
+        content.pack_start(notebook, True, True, 0)
 
+        # ===== GPS Navigation Tab =====
+        gps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        gps_box.set_border_width(8)
+        
         info = Gtk.Label(label="Choose which app the GPS Nav button should launch.")
         info.set_xalign(0)
         info.get_style_context().add_class("subtle")
-        content.pack_start(info, False, False, 0)
+        gps_box.pack_start(info, False, False, 0)
 
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        content.pack_start(row, False, False, 0)
+        gps_box.pack_start(row, False, False, 0)
         row.pack_start(Gtk.Label(label="GPS Nav app:"), False, False, 0)
 
         combo = Gtk.ComboBoxText()
@@ -2749,12 +3169,12 @@ class App(Gtk.Window):
         combo.set_active_id(current_id)
         row.pack_start(combo, True, True, 0)
 
+        notebook.append_page(gps_box, Gtk.Label(label="GPS Navigation"))
+
+        # ===== Alerts Tab =====
         alerts = self.settings.get("alerts", dict(DEFAULT_ALERTS))
-        alerts_frame = Gtk.Frame(label="Alert Engine")
-        content.pack_start(alerts_frame, False, False, 0)
-        alerts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        alerts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         alerts_box.set_border_width(8)
-        alerts_frame.add(alerts_box)
 
         alerts_enabled = Gtk.CheckButton(label="Enable alerts")
         alerts_enabled.set_active(bool(alerts.get("enabled", True)))
@@ -2769,16 +3189,21 @@ class App(Gtk.Window):
         batt_spin = Gtk.SpinButton.new_with_range(1, 100, 1)
         batt_spin.set_value(float(alerts.get("battery_pct", 25)))
 
+        alerts_grid = Gtk.Grid()
+        alerts_grid.set_column_spacing(8)
+        alerts_grid.set_row_spacing(6)
+        alerts_box.pack_start(alerts_grid, False, False, 0)
+
+        row_idx = 0
         for label_text, widget in [
             ("CPU max (C):", cpu_spin),
             ("RAM max used (%):", ram_spin),
             ("Disk min free (%):", disk_spin),
             ("Battery min (%):", batt_spin),
         ]:
-            srow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            srow.pack_start(Gtk.Label(label=label_text), False, False, 0)
-            srow.pack_start(widget, False, False, 0)
-            alerts_box.pack_start(srow, False, False, 0)
+            alerts_grid.attach(Gtk.Label(label=label_text), 0, row_idx, 1, 1)
+            alerts_grid.attach(widget, 1, row_idx, 1, 1)
+            row_idx += 1
 
         require_fix = Gtk.CheckButton(label="Alert when GPS has no 2D/3D fix")
         require_fix.set_active(bool(alerts.get("require_gps_fix", False)))
@@ -2788,6 +3213,65 @@ class App(Gtk.Window):
         require_wifi.set_active(bool(alerts.get("require_wifi", False)))
         alerts_box.pack_start(require_wifi, False, False, 0)
 
+        notebook.append_page(alerts_box, Gtk.Label(label="Alerts"))
+
+        # ===== UI Mode & Appearance Tab =====
+        ui_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        ui_box.set_border_width(8)
+
+        # Touch Mode toggle
+        touch_mode_check = Gtk.CheckButton(label="Enable Touch Mode (larger buttons)")
+        touch_mode_check.set_active(self.touch_mode_enabled)
+        touch_mode_info = Gtk.Label(label="Increases button size for easier touch interaction")
+        touch_mode_info.set_xalign(0)
+        touch_mode_info.get_style_context().add_class("subtle")
+        ui_box.pack_start(touch_mode_check, False, False, 0)
+        ui_box.pack_start(touch_mode_info, False, False, 0)
+
+        # High Contrast toggle
+        high_contrast_check = Gtk.CheckButton(label="Enable High Contrast Mode")
+        high_contrast_check.set_active(self.high_contrast_enabled)
+        high_contrast_info = Gtk.Label(label="Black-on-white theme for better visibility")
+        high_contrast_info.set_xalign(0)
+        high_contrast_info.get_style_context().add_class("subtle")
+        ui_box.pack_start(high_contrast_check, False, False, 0)
+        ui_box.pack_start(high_contrast_info, False, False, 0)
+
+        # Theme selection (Day/Night) in its own section
+        theme_frame = Gtk.Frame(label="Theme Selection")
+        theme_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        theme_box.set_border_width(8)
+        theme_frame.add(theme_box)
+        ui_box.pack_start(theme_frame, False, False, 0)
+
+        theme_day_radio = Gtk.RadioButton.new_with_label(None, "Day Mode")
+        theme_night_radio = Gtk.RadioButton.new_with_label_from_widget(theme_day_radio, "Night Mode")
+        
+        if self.settings.get("theme_mode", "night") == "day":
+            theme_day_radio.set_active(True)
+        else:
+            theme_night_radio.set_active(True)
+        
+        theme_box.pack_start(theme_day_radio, False, False, 0)
+        theme_box.pack_start(theme_night_radio, False, False, 0)
+
+        notebook.append_page(ui_box, Gtk.Label(label="Appearance"))
+
+        # ===== Additional Settings Tab (Find GPS Apps + Plugins) =====
+        extra_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        extra_box.set_border_width(8)
+
+        # Find GPS Apps button in settings
+        find_gps_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        find_gps_label = Gtk.Label(label="GPS App Discovery")
+        find_gps_label.set_xalign(0)
+        find_gps_label.get_style_context().add_class("subtle")
+        find_gps_btn = Gtk.Button(label="Find GPS Apps")
+        find_gps_btn.connect("clicked", self.on_find_gps_apps_clicked)
+        find_gps_row.pack_start(find_gps_label, True, True, 0)
+        find_gps_row.pack_end(find_gps_btn, False, False, 0)
+        extra_box.pack_start(find_gps_row, False, False, 0)
+
         plugin_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         plugin_label = Gtk.Label(label="Custom launchers use plugins.json (or bundled defaults)")
         plugin_label.set_xalign(0)
@@ -2796,7 +3280,9 @@ class App(Gtk.Window):
         plugin_btn.connect("clicked", lambda _b: self.open_plugins_dialog(dialog))
         plugin_row.pack_start(plugin_label, True, True, 0)
         plugin_row.pack_end(plugin_btn, False, False, 0)
-        content.pack_start(plugin_row, False, False, 0)
+        extra_box.pack_start(plugin_row, False, False, 0)
+
+        notebook.append_page(extra_box, Gtk.Label(label="Additional"))
 
         dialog.show_all()
         resp = dialog.run()
@@ -2812,6 +3298,15 @@ class App(Gtk.Window):
                 "require_gps_fix": require_fix.get_active(),
                 "require_wifi": require_wifi.get_active(),
             }
+            # UI Mode Settings
+            self.touch_mode_enabled = touch_mode_check.get_active()
+            self.high_contrast_enabled = high_contrast_check.get_active()
+            if theme_day_radio.get_active():
+                self.settings["theme_mode"] = "day"
+            else:
+                self.settings["theme_mode"] = "night"
+            # Apply UI mode settings
+            self.apply_ui_mode_settings()
             self.settings["profile"] = "custom"
             save_settings(self.settings)
             save_named_snapshot(
@@ -2909,53 +3404,6 @@ class App(Gtk.Window):
         if parent_dialog is not None:
             parent_dialog.present()
 
-    def on_pineapple_clicked(self, _button):
-        """Handle Hak5 Pineapple Modules button click."""
-        try:
-            # Import the pineapple UI module with full-screen window support
-            import sys
-            from pathlib import Path
-            app_dir = Path(__file__).resolve().parent
-            plugins_dir = app_dir / "plugins"
-            
-            if str(plugins_dir) not in sys.path:
-                sys.path.insert(0, str(plugins_dir))
-            
-            # Import both for compatibility
-            try:
-                from pineapple_ui import PineappleWindow  # Full-screen window
-                # Show full-screen window
-                window = PineappleWindow(self)
-                return
-            except ImportError:
-                pass
-            
-            # Fallback to dialog if full-screen not available
-            from pineapple_ui import PineappleModuleManager
-            
-            # Create and show the manager in a dialog
-            manager = PineappleModuleManager(self)
-            content = manager.create_tab()
-            
-            # Show in a dialog with exit button
-            dlg = Gtk.Dialog(title="Hak5 Pineapple Modules", transient_for=self, flags=0)
-            dlg.set_default_size(900, 600)
-            content.set_border_width(0)
-            dlg.get_content_area().pack_start(content, True, True, 0)
-            
-            close_btn = dlg.add_button("Exit", Gtk.ResponseType.CLOSE)
-            close_btn.connect("clicked", lambda _b: dlg.destroy())
-            
-            dlg.show_all()
-            dlg.run()
-            dlg.destroy()
-            
-        except Exception as e:
-            self.status.set_text(f"Hak5 Pineapple error: {str(e)[:100]}")
-            import traceback
-            import logging
-            logging.error(traceback.format_exc())
-
     def get_icon_image(self, icon_name, size=16):
         if not icon_name:
             return None
@@ -3015,8 +3463,8 @@ class App(Gtk.Window):
         existing = button.get_child()
         if existing is not None:
             button.remove(existing)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        icon = self.get_icon_image(icon_name, size=14)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+        icon = self.get_icon_image(icon_name, size=12)
         if icon is not None:
             row.pack_start(icon, False, False, 0)
         label = Gtk.Label(label=label_text)
@@ -3278,9 +3726,23 @@ class App(Gtk.Window):
             status_label.get_style_context().add_class("titlebar")
             header_box.pack_start(status_label, True, True, 0)
             
-            # Exit button in header
+            # Exit button in header with icon
             exit_btn = Gtk.Button(label="Exit Fullscreen")
             exit_btn.connect("clicked", lambda b: window.destroy())
+            
+            # Add X icon to exit button
+            try:
+                from gi.repository import GdkPixbuf
+                icons_dir = Path(__file__).resolve().parent.parent / "icons"
+                exit_icon_path = icons_dir / "power.svg"
+                if exit_icon_path.exists():
+                    pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(exit_icon_path), width=16, height=16, preserve_aspect_ratio=True)
+                    image = Gtk.Image.new_from_pixbuf(pix)
+                    exit_btn.set_image(image)
+                    exit_btn.set_image_position(Gtk.PositionType.LEFT)
+            except Exception:
+                pass
+            
             header_box.pack_end(exit_btn, False, False, 0)
             
             # Quick status widgets
@@ -3409,7 +3871,7 @@ class App(Gtk.Window):
             
             reaver_btn = Gtk.Button(label="Reaver (WPS)")
             self.decorate_button(reaver_btn, "wifi", "Launch Reaver")
-            reaver_btn.connect("clicked", lambda b: self.launch_tool(status_label, "reaver"))
+            reaver_btn.connect("clicked", lambda b: self.launch_python_tool(status_label, "reaver.reaver_ui"))
             active_box.pack_start(reaver_btn, False, False, 0)
             
             bully_btn = Gtk.Button(label="Bully (WPS)")
@@ -3570,7 +4032,7 @@ class App(Gtk.Window):
     def launch_python_tool(self, status_label, tool_name):
         """Launch a Python security tool"""
         import subprocess
-        cmd = ["gnome-terminal", "--", "bash", "-c", f"python3 -c 'import {tool_name}; print(\"{tool_name} ready\")'; exec bash"]
+        cmd = ["gnome-terminal", "--", "bash", "-c", f"python3 -c 'import {tool_name}; {tool_name}.main()'; exec bash"]
         try:
             subprocess.Popen(cmd)
             if status_label:

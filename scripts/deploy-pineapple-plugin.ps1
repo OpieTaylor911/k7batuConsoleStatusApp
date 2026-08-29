@@ -6,7 +6,7 @@ Write-Host "Deploying Hak5 Pineapple Modules Plugin..."
 # Configuration
 $UConsoleHost = "uconsole"
 $PluginSourceDir = "./app/plugins"
-$RemoteBasePath = "/opt/k7bat-uconsole-status"
+$RemoteBasePath = "/home/bcaddy/uconsole-k7bat/app"
 
 # Create remote plugin directory
 Write-Host "Creating remote plugin directory..."

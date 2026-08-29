@@ -10,7 +10,7 @@ unicode: "f094"
   height="24"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#EAF0F7"
+  stroke="#FFFFFF"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -22,3 +22,5 @@ unicode: "f094"
   <path d="M4 6v4" />
   <path d="M20 8h-16" />
 </svg>
+
+

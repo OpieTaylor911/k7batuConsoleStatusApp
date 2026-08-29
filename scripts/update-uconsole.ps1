@@ -20,7 +20,7 @@ Get-ChildItem -Path "scripts" -Recurse -Include "*.sh", "k7bat-uconsole-status" 
 
 # Upload files to existing remote directory
 Write-Host "==> Uploading changed files..."
-$remoteDir = "/opt/k7bat-uconsole-status"
+$remoteDir = "/home/bcaddy/uconsole-k7bat/app"
 & ssh uconsole "mkdir -p '$remoteDir'"
 
 $sources = @(

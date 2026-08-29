@@ -1,23 +1,31 @@
-[
+﻿[
   {
     "id": "find-gps-apps",
     "label": "Find GPS Apps",
-    "command": "x-terminal-emulator -e sh -lc 'find-gps-apps; echo; read -r -p \"Press Enter to close...\" _'",
+    "command": "x-terminal-emulator -e sh -lc '"'"'find-gps-apps; echo; read -r -p \"Press Enter to close...\" _'"'"'",
     "check": "x-terminal-emulator",
     "tooltip": "List detected GPS/navigation launch targets"
   },
   {
     "id": "bt-devices",
     "label": "BT Devices",
-    "command": "x-terminal-emulator -e sh -lc 'bluetoothctl devices; echo; read -r -p \"Press Enter to close...\" _'",
+    "command": "x-terminal-emulator -e sh -lc '"'"'bluetoothctl devices; echo; read -r -p \"Press Enter to close...\" _'"'"'",
     "check": "x-terminal-emulator",
     "tooltip": "Show discovered and paired Bluetooth devices"
   },
   {
     "id": "readsb-log",
     "label": "readsb Log",
-    "command": "x-terminal-emulator -e sh -lc 'journalctl -u readsb --no-pager -n 120; echo; read -r -p \"Press Enter to close...\" _'",
+    "command": "x-terminal-emulator -e sh -lc '"'"'journalctl -u readsb --no-pager -n 120; echo; read -r -p \"Press Enter to close...\" _'"'"'",
     "check": "x-terminal-emulator",
     "tooltip": "Tail recent readsb service logs"
+  },
+  {
+    "id": "pineapple-modules",
+    "label": "Hak5 Pineapple",
+    "type": "python",
+    "module": "pineapple_ui.PineappleWindow",
+    "check": "",
+    "tooltip": "Launch Hak5 Pineapple Modules full-screen interface"
   }
 ]

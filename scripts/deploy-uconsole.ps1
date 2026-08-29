@@ -10,7 +10,7 @@
 #   --SkipDiagnostics     Skip running diagnostics
 #   --SkipSync            Skip file synchronization (update only)
 #   -HostAlias <name>     Remote host alias (default: uconsole)
-#   -RemoteDir <path>     Remote directory path (default: /opt/k7bat-uconsole-status)
+#   -RemoteDir <path>     Remote directory path (default: ~/.local/share/k7bat-uconsole-status)
 #
 # Examples:
 #   # Full deployment (fresh install on target)
@@ -24,7 +24,7 @@
 
 param(
     [string]$HostAlias = "uconsole",
-    [string]$RemoteDir = "/opt/k7bat-uconsole-status",
+    [string]$RemoteDir = "/home/bcaddy/uconsole-k7bat",
     [switch]$SkipInstall,
     [switch]$SkipDiagnostics,
     [switch]$SkipSync,
@@ -84,6 +84,7 @@ if (-not $SkipSync) {
             "app",
             "assets",
             "scripts",
+            "plugins",
             "install.sh",
             "uninstall.sh",
             "README.md",

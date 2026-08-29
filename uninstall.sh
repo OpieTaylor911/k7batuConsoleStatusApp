@@ -5,7 +5,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-rm -rf /opt/k7bat-uconsole-status
+rm -rf /home/bcaddy/uconsole-k7bat
 rm -f /usr/local/bin/k7bat-uconsole-status
 if [[ -L /usr/local/bin/uconsole-dashboard ]]; then
   rm -f /usr/local/bin/uconsole-dashboard

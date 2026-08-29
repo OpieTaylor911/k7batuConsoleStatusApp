@@ -86,7 +86,7 @@
 - `Ctrl+G` launches GPS Nav
 - Added profile export/import snapshot workflow including plugin state.
 - Added SVG icon framework for labels, sections, and launch buttons with graceful fallback when icons are missing.
-- Added installer support for shipping SVG icon packs from `assets/icons` into `/opt/k7bat-uconsole-status/icons`.
+- Added installer support for shipping SVG icon packs from `assets/icons` into `/home/bcaddy/uconsole-k7bat/icons`.
 - Hardened deployment script line-ending normalization with `dos2unix` fallback handling and explicit executable bit for launcher scripts.
 
 ## 1.1.0 - 2026-08-21

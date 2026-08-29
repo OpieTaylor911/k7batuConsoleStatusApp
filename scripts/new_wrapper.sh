@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -e
+if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  export GDK_BACKEND=wayland
+fi
+exec /usr/bin/python3 /home/bcaddy/uconsole-k7bat/app/k7bat-uconsole-status.py "$@"

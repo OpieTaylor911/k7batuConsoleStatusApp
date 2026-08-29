@@ -1,6 +1,6 @@
 # K7BAT uConsole Status App TODO
 
-Updated: 2026-08-22
+Updated: 2026-08-26
 
 ## Enhancement Tracker (Original 12)
 
@@ -21,10 +21,18 @@ Updated: 2026-08-22
   - Completed: tactical scan/connect/disconnect/forget helper actions and on-demand connectivity detail popup.
 - [ ] Touch-First Field UI Mode
   - Current: compact two-column layout and maximized start.
-  - Remaining: dedicated touch mode toggle, high-contrast mode, and day/night theme.
-- [ ] Secure Remote Assist Mode
+  - Completed: dedicated touch mode toggle button with "Touch Mode" label (moved to Settings dialog)
+  - Completed: CSS classes `.touch-mode` for larger buttons (min-height 48px, font-size 18px)
+  - Completed: high-contrast toggle button with "High Contrast" label (moved to Settings dialog)
+  - Completed: day/night theme selection in Settings dialog
+  - Completed: all three UI mode settings apply CSS classes to window for visual changes
+  - Completed: settings persist across app restarts
+- [x] Secure Remote Assist Mode
   - Current: baseline diagnostics script exists.
-  - Remaining: temporary diagnostics bundle workflow and tokenized upload path.
+  - Completed: temporary diagnostics bundle workflow with comprehensive system collection (system info, network, GPS, AIO, services, USB, hardware monitors, app logs, config files, filesystem status)
+  - Completed: Python module `app/plugins/remote_assist.py` with DiagnosticsBundle class
+  - Completed: "Remote Assist" button added to plugin row in main window
+  - Remaining: tokenized upload path integration (upload endpoint configuration, token input dialog, progress indicator)
 - [x] Auto-Update and Rollback
   - Current: startup release detection and popup with GitHub tag fallback are implemented.
   - Completed: backup/restore workflow, channel selection, and one-click in-app apply (requires passwordless sudo).
@@ -48,14 +56,12 @@ Updated: 2026-08-22
 - [ ] WiFiPineapple Integration - EAPHammer WPA2-Enterprise Evil Twin
   - Scope: Target corporate WPA2-Enterprise networks with credential stealing and hostile portal attacks.
   - Hardware: Already supported (MT7921 driver supports 802.11ac + AP mode for rogue APs).
-- [ ] WiFiPineapple Integration - Bettercap MITM Caplets
-  - Scope: Create GUI interface to launch Bettercap HTTPAuth, DNS Spoof, SSLStrip caplets with configurable targets.
+- [ ] WiFiPineapple Integration - Responder/NTLM Hash Capture
+  - Scope: Monitor and display NTLMv2 hashes captured via bettercap MITM or Responder integration.
 - [ ] Hak5 Pineapple Modules UI Integration
   - Scope: Add "Hak5 Pineapple Modules" button to plugin row that opens module management dialog
   - Current: Loader and UI classes created in `app/plugins/`, integrated into main App class
   - Task: Modified `app/k7bat-uconsole-status.py` to register plugin button and handle clicks ✅
-- [ ] WiFiPineapple Integration - Responder/NTLM Hash Capture
-  - Scope: Monitor and display NTLMv2 hashes captured via bettercap MITM or Responder integration.
 
 ## Hardware Requirements for WiFiPineapple Features
 

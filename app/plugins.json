@@ -1,0 +1,47 @@
+[
+{
+  "label": "Find GPS Apps",
+  "command": "x-terminal-emulator -e bash -c 'find-gps-apps; echo; read -r -p \"Press Enter to close...\" _'",
+  "id": "find-gps-apps",
+  "tooltip": "List detected GPS/navigation launch targets",
+  "check": "x-terminal-emulator"
+},
+{
+  "label": "BT Devices",
+  "command": "x-terminal-emulator -e bash -c 'bluetoothctl devices; echo; read -r -p \"Press Enter to close...\" _'",
+  "id": "bt-devices",
+  "tooltip": "Show discovered and paired Bluetooth devices",
+  "check": "x-terminal-emulator"
+},
+{
+  "id": "battery-diag",
+  "label": "Battery Diag",
+  "type": "python",
+  "module": "battery_diag_ui.BatteryDiagWindow",
+  "tooltip": "In-depth battery diagnostic tool showing charge status, power draw, and battery health (user plugin)"
+},
+{
+  "id": "pineapple-modules",
+  "label": "Hak5 Pineapple",
+  "check": "",
+  "type": "python",
+  "module": "pineapple_ui.PineappleWindow",
+  "tooltip": "Launch Hak5 Pineapple Modules full-screen interface (user plugin)"
+},
+{
+  "id": "wifi-assessment",
+  "label": "Wi-Fi Assessment",
+  "check": "",
+  "type": "python",
+  "module": "wifi_assessment_ui.WifiAssessmentWindow",
+  "tooltip": "Launch Wi-Fi Assessment Tools full-screen interface (CEH certified) (user plugin)"
+},
+{
+  "id": "reaver-wps",
+  "label": "Reaver WPS Attack",
+  "check": "",
+  "type": "python",
+  "module": "reaver.reaver_ui.ReaverWindow",
+  "tooltip": "Launch Reaver WPS attack tool with GUI interface (user plugin)"
+}
+]

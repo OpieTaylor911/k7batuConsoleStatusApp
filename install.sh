@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="K7BAT uConsole Status App"
 APP_ID="k7bat-uconsole-status"
-PREFIX="/opt/$APP_ID"
+PREFIX="/home/bcaddy/uconsole-k7bat"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ $EUID -ne 0 ]]; then
@@ -103,6 +103,43 @@ if [ -d "$SCRIPT_DIR/assets/icons" ]; then
   mkdir -p "$PREFIX/icons"
   find "$SCRIPT_DIR/assets/icons" -maxdepth 1 -type f -name '*.svg' -exec install -m 0644 {} "$PREFIX/icons/" \;
 fi
+
+# Install plugin files
+if [ -d "$SCRIPT_DIR/app/plugins" ]; then
+  mkdir -p "$PREFIX/app/plugins"
+  for plugin_file in "$SCRIPT_DIR/app/plugins"/*.py; do
+    if [ -f "$plugin_file" ]; then
+      install -m 0644 "$plugin_file" "$PREFIX/app/plugins/" || true
+      ok "Installed plugin: $(basename "$plugin_file")"
+    fi
+  done
+  
+  # Check plugin dependencies
+  log "Checking plugin dependencies"
+  for plugin_dir in "$SCRIPT_DIR/app/plugins"/*/; do
+    if [ -d "$plugin_dir" ] && [ -f "$plugin_dir/plugin_config.py" ]; then
+      plugin_name=$(basename "$plugin_dir")
+      ok "Checking dependencies for plugin: $plugin_name"
+      
+      # Extract packages from plugin_config.py using grep/sed
+      packages=$(grep -E "^INSTALL_PACKAGES\s*=" "$plugin_dir/plugin_config.py" | \
+                 sed -n "s/.*\[//; s/\].*//; s/['\",]//gp" 2>/dev/null || true)
+      
+      if [ -n "$packages" ]; then
+        for pkg in $packages; do
+          if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            ok "  ✓ $pkg already installed"
+          else
+            warn "  ✗ $pkg not installed - run: sudo apt install $pkg"
+          fi
+        done
+      else
+        ok "  No package dependencies defined"
+      fi
+    fi
+  done
+fi
+
 install -m 0755 "$SCRIPT_DIR/scripts/k7bat-uconsole-status" /usr/local/bin/k7bat-uconsole-status
 install -m 0755 "$SCRIPT_DIR/scripts/find-gps-apps.sh" /usr/local/bin/find-gps-apps
 ln -sfn /usr/local/bin/k7bat-uconsole-status /usr/local/bin/uconsole-dashboard

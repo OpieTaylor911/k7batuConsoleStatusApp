@@ -82,7 +82,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete release history.
 
 - Plugin buttons appear in the right column under `Updated:`.
 - User-defined plugins: `~/.config/k7bat-uconsole-status/plugins.json`.
-- Bundled fallback starter pack: `/opt/k7bat-uconsole-status/plugins.default.json`.
+- Bundled fallback starter pack: `/home/bcaddy/uconsole-k7bat/plugins.default.json`.
 - In-app JSON editor available in Settings.
 
 Example plugin entry:
@@ -120,7 +120,7 @@ The installer:
 
 1. Detects the active desktop user.
 2. Installs required Debian packages.
-3. Deploys app files to `/opt/k7bat-uconsole-status`.
+3. Deploys app files to `/home/bcaddy/uconsole-k7bat`.
 4. Installs launcher command `k7bat-uconsole-status` to `/usr/local/bin`.
 5. Adds Start-menu entry and desktop shortcut.
 6. Detects `aiov2_ctl` when present.

@@ -11,8 +11,21 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+
+def debug_log(message: str):
+    """Write debug message to log file with timestamp."""
+    try:
+        timestamp = time.strftime("%H:%M:%S")
+        DEBUG_LOG = Path("/home/bcaddy/uconsole-k7bat/pineapple_debug.log")
+        DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(DEBUG_LOG, "a") as f:
+            f.write(f"[{timestamp}] {message}\n")
+    except Exception as e:
+        pass  # Don't let logging fail the app
 
 
 class Request:
@@ -55,6 +68,9 @@ class PineappleModule:
 APP_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(APP_DIR))
 
+# Active modules directory - updated to point to the actual modules location
+ACTIVE_MODULES_DIR = Path("/home/bcaddy/uconsole-k7bat/pineapple-modules-full")
+
 
 class PineappleModuleLoader:
     """Load and execute Hak5 Pineapple modules."""
@@ -64,9 +80,9 @@ class PineappleModuleLoader:
         Initialize the module loader.
         
         Args:
-            modules_dir: Directory containing pineapple modules (default: ~/.config/k7bat-uconsole-status/pineapple_modules)
+            modules_dir: Directory containing pineapple modules (default: /home/bcaddy/uconsole-k7bat/pineapple-modules-full)
         """
-        self.modules_dir = modules_dir or Path.home() / ".config" / "k7bat-uconsole-status" / "pineapple_modules"
+        self.modules_dir = modules_dir or ACTIVE_MODULES_DIR
         self.modules_dir.mkdir(parents=True, exist_ok=True)
         
         self.loaded_modules: Dict[str, PineappleModule] = {}
@@ -74,25 +90,41 @@ class PineappleModuleLoader:
         
     def discover_modules(self) -> List[Dict[str, Any]]:
         """Discover all available modules in the modules directory."""
+        debug_log(f"[DEBUG] discover_modules called, modules_dir={self.modules_dir}")
+        debug_log(f"[DEBUG] modules_dir exists: {self.modules_dir.exists()}")
         modules = []
         
         if not self.modules_dir.exists():
+            debug_log("[DEBUG] modules_dir does not exist, returning empty list")
             return modules
-            
+        
+        # First, try to load from standard module.json in each subdirectory
+        debug_log(f"[DEBUG] Iterating through directory...")
         for module_path in self.modules_dir.iterdir():
+            debug_log(f"[DEBUG] Found path: {module_path}")
             if module_path.is_dir():
-                metadata = self._load_module_metadata(module_path)
+                # Try standard location first (projects/{name}/src/module.json)
+                metadata = self._load_module_metadata(module_path / "projects" / module_path.name / "src")
+                
+                # If not found, try root of module directory
+                if not metadata:
+                    metadata = self._load_module_metadata(module_path)
+                
                 if metadata:
+                    debug_log(f"[DEBUG] Loaded metadata for {metadata.get('name', 'unknown')}: {metadata.keys()}")
                     modules.append(metadata)
                     
+        debug_log(f"[DEBUG] discover_modules found {len(modules)} modules")
         return modules
     
     def _load_module_metadata(self, module_dir: Path) -> Optional[Dict[str, Any]]:
         """Load module metadata from module.json."""
+        debug_log(f"[DEBUG] _load_module_metadata called for {module_dir}")
         metadata_file = module_dir / "module.json"
         
         if not metadata_file.exists():
             self.logger.warning(f"No module.json found in {module_dir}")
+            debug_log(f"[DEBUG] No module.json in {module_dir}, returning None")
             return None
             
         try:
@@ -110,10 +142,12 @@ class PineappleModuleLoader:
             else:
                 metadata['has_python'] = False
                 
+            debug_log(f"[DEBUG] _load_module_metadata succeeded for {metadata.get('name', 'unknown')}")
             return metadata
             
         except Exception as e:
             self.logger.error(f"Error loading metadata from {module_dir}: {e}")
+            debug_log(f"[DEBUG] _load_module_metadata error: {e}")
             return None
     
     def load_module(self, module_name: str) -> Optional[PineappleModule]:
