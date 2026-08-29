@@ -9,3 +9,4 @@ Terminal=false
 Categories=System;Utility;Network;
 StartupNotify=true
 X-GNOME-UsesNotifications=true
+NoDisplay=false

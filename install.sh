@@ -146,8 +146,8 @@ ln -sfn /usr/local/bin/k7bat-uconsole-status /usr/local/bin/uconsole-dashboard
 
 install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.svg" \
   /usr/share/icons/hicolor/scalable/apps/k7bat-uconsole-status.svg
-tr -d '\r' < "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
-  > /usr/share/applications/k7bat-uconsole-status.desktop
+install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" \
+  /usr/share/applications/k7bat-uconsole-status.desktop
 chmod 0644 /usr/share/applications/k7bat-uconsole-status.desktop
 
 if [[ -n "${GUI_USER:-}" ]]; then
