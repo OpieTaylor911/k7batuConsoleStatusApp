@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0.0
+Type=Application
+Name=K7BAT Sidekick Setup
+Comment=Provision the ESP32 Sidekick's Wi-Fi and uConsole server address over USB serial
+Exec=/usr/local/bin/k7bat-sidekick-setup
+Icon=/home/bcaddy/uconsole-k7bat/app/icons/radio-tower.svg
+Terminal=false
+Categories=System;Utility;Network;
+StartupNotify=true
+NoDisplay=false

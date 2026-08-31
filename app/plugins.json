@@ -21,6 +21,14 @@
   "tooltip": "In-depth battery diagnostic tool showing charge status, power draw, and battery health (user plugin)"
 },
 {
+  "id": "sidekick-setup",
+  "label": "Sidekick Setup",
+  "check": "",
+  "type": "python",
+  "module": "sidekick_setup_ui.SidekickSetupWindow",
+  "tooltip": "Provision the ESP32 Sidekick's Wi-Fi and uConsole server address over USB serial (user plugin)"
+},
+{
   "id": "pineapple-modules",
   "label": "Hak5 Pineapple",
   "check": "",

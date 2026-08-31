@@ -237,6 +237,11 @@ label.title {
   font-size: 12pt;
 }
 
+/* Network section: smaller font to fit more rows */
+.network-compact label {
+  font-size: 0.9em;
+}
+
 /* Notebook tabs */
 notebook tab {
   padding: 8px 16px;

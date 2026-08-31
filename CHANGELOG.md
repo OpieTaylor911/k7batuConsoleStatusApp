@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.1 - 2026-08-31 (pre-release)
+
+- Rebuilt the main app UI after a v2.0.0 regression left the window created but never shown/populated (missing `show_all()`, missing dashboard widget wiring)
+- Restored a full tabbed dashboard: Status (System/Power & Radios/Services/Network), GPS, Launchers, Plugins — fullscreen by default with Exit button, F11 fullscreen toggle, Escape to quit
+- Added Power & Radios controls (GPS/SDR/LORA/USB-AC1200 toggles, Bluetooth toggle) wired to `aiov2_ctl` and systemd
+- Added Settings tab to start/stop the Sidekick status API server, with autostart-on-launch option
+- Added `status_api.py` real GPS status reporting (was a hardcoded placeholder) and a new `/api/sidekick` plain-text endpoint for the ESP32 Sidekick
+- Added the K7BAT Sidekick ESP32 companion display integration:
+  - Serial Wi-Fi provisioning protocol (`SETWIFI=`, `GETWIFI`, `GETIP`, `CLEARWIFI`, `GETVERSION`) with on-device `BOARD=`/`VERSION=` self-reporting
+  - New standalone "Sidekick Setup" app/plugin: serial port picker, Wi-Fi provisioning with saved SSID/password, live serial log with auto-scroll
+  - Firmware flashing via `esptool` (`--no-stub`, working around a Debian packaging gap missing ESP32/S2/S3 stub flashers)
+  - Firmware download from a releases server: `index.json` → per-version `release.json`/`manifest.json` (ESP Web Tools schema) resolution, latest-version auto-detection, single merged-image flashing
+- Various UI polish: tabler-icons-based white icons, tighter spacing/compact fonts for small-screen fit, services laid out as a wide 2-column grid
+
 ## 1.2.0 - 2026-08-23
 
 - Added auto-update with rollback capability

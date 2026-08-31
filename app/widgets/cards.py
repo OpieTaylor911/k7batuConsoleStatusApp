@@ -344,3 +344,7 @@ class DashboardPage(Gtk.Box):
                 row += 1
         
         self.pack_start(actions_grid, False, False, 0)
+
+    def get_content(self):
+        """Return the widget for easy integration."""
+        return self

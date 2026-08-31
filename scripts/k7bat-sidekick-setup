@@ -2,23 +2,16 @@
 # Do not use `set -e` here: it would abort before we can log a failure's exit code.
 set -uo pipefail
 
-APP_PY="/home/bcaddy/uconsole-k7bat/app/k7bat-uconsole-status.py"
-LOG_DIR="${HOME:-/home/bcaddy}/.local/share/k7bat-uconsole-status"
+APP_PY="/home/bcaddy/uconsole-k7bat/app/plugins/sidekick_setup_ui.py"
+LOG_DIR="${HOME:-/home/bcaddy}/.local/share/k7bat-sidekick-setup"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/launcher.log"
 
 {
   echo "=== launcher start $(date -Is) ==="
-  echo "USER=${USER:-$(id -un)}"
-  echo "HOME=${HOME:-/home/bcaddy}"
-  echo "PWD=${PWD}"
-  echo "ARGV=$*"
   echo "APP_PY=$APP_PY"
   echo "APP_PY exists: $([ -f "$APP_PY" ] && echo yes || echo NO)"
-  echo "python3: $(command -v python3 2>&1 || echo NOT_FOUND)"
-  echo "python3 --version: $(python3 --version 2>&1 || true)"
-  echo "python3 gi module: $(python3 -c 'import gi; print(gi.__file__)' 2>&1 || true)"
-  env | sort | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XDG_|DBUS_|GDK_BACKEND|XAUTHORITY|DESKTOP_SESSION|XDG_SESSION_TYPE)=' || true
+  env | sort | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XDG_|DBUS_|GDK_BACKEND|XAUTHORITY)=' || true
 } >> "$LOG_FILE" 2>&1
 
 if [ -n "${WAYLAND_DISPLAY:-}" ]; then
