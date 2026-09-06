@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import re
+import signal
 import shutil
 import subprocess
 import tarfile
@@ -1695,6 +1696,7 @@ class App(Gtk.Window):
             return page
 
         status_page = add_tab("Status")
+        network_page = add_tab("Network")
         gps_page = add_tab("GPS")
         launchers_page = add_tab("Launchers")
         plugins_page = add_tab("Plugins")
@@ -1746,19 +1748,6 @@ class App(Gtk.Window):
 
         # GPS section moved to its own tab (see gps_page below)
 
-        # Network section (slightly smaller font to fit more rows)
-        netbox = self.make_frame(status_col_right, "Network", "network")
-        netbox.get_style_context().add_class("network-compact")
-        self.add_row(netbox, "ip", "IP Address", "network")
-        self.add_row(netbox, "eth", "Ethernet")
-        self.add_row(netbox, "wifi", "Wi-Fi", "wifi")
-        self.add_row(netbox, "active_link", "Active Link")
-        self.add_row(netbox, "wifi_trend", "Wi-Fi Trend")
-        self.add_row(netbox, "failover", "Failover")
-        self.add_row(netbox, "hotspot_watchdog", "Watchdog")
-        self.add_row(netbox, "bt", "Bluetooth", "bluetooth")
-        self.add_row(netbox, "bt_ctrl", "BT Controller")
-
         # Services section: full width, spans both columns, laid out 2-wide
         svcbox = self.make_frame(status_page, "Services", "settings")
         self.add_row(svcbox, "gpsd", "gpsd")
@@ -1766,8 +1755,14 @@ class App(Gtk.Window):
         svc_grid = Gtk.Grid(row_spacing=4, column_spacing=16)
         svc_grid.set_column_homogeneous(True)
         svcbox.pack_start(svc_grid, False, False, 0)
-        svc_cols = 2
-        for i, svc in enumerate(("gpsd", "gpsd.socket", "bluetooth", "readsb", "NetworkManager")):
+        service_positions = (
+            ("gpsd", 0, 0),
+            ("bluetooth", 0, 1),
+            ("readsb", 1, 1),
+            ("NetworkManager", 0, 2),
+            ("gpsd.socket", 1, 2),
+        )
+        for svc, column, row_index in service_positions:
             row = Gtk.Box(spacing=6)
             dot = Gtk.Label(label="●")
             dot.get_style_context().add_class("status-unknown")
@@ -1780,7 +1775,70 @@ class App(Gtk.Window):
             restart_btn = Gtk.Button(label="Restart")
             restart_btn.connect("clicked", lambda _b, s=svc: self.restart_service(s))
             row.pack_start(restart_btn, False, False, 0)
-            svc_grid.attach(row, i % svc_cols, i // svc_cols, 1, 1)
+            svc_grid.attach(row, column, row_index, 1, 1)
+
+        sidekick_api_row = Gtk.Box(spacing=6)
+        self.sidekick_api_main_label = Gtk.Label(label=self.sidekick_api_main_status_text())
+        self.sidekick_api_main_label.set_xalign(0)
+        sidekick_api_row.pack_start(self.sidekick_api_main_label, True, True, 0)
+        start_api_btn = Gtk.Button(label="Start")
+        start_api_btn.connect("clicked", self.on_start_sidekick_api_clicked)
+        sidekick_api_row.pack_start(start_api_btn, False, False, 0)
+        stop_api_btn = Gtk.Button(label="Stop")
+        stop_api_btn.connect("clicked", self.on_stop_sidekick_api_clicked)
+        sidekick_api_row.pack_start(stop_api_btn, False, False, 0)
+        restart_api_btn = Gtk.Button(label="Restart")
+        restart_api_btn.connect("clicked", self.on_restart_sidekick_api_clicked)
+        sidekick_api_row.pack_start(restart_api_btn, False, False, 0)
+        svc_grid.attach(sidekick_api_row, 1, 0, 1, 1)
+
+        # Network tab (moved from main status page)
+        netbox = self.make_frame(network_page, "Network", "network")
+        self.add_row(netbox, "ip", "IP Address", "network")
+        self.add_row(netbox, "eth", "Ethernet")
+        self.add_row(netbox, "wifi", "Wi-Fi", "wifi")
+        self.add_row(netbox, "active_link", "Active Link")
+        self.add_row(netbox, "wifi_trend", "Wi-Fi Trend")
+        self.add_row(netbox, "failover", "Failover")
+        self.add_row(netbox, "hotspot_watchdog", "Watchdog")
+        self.add_row(netbox, "bt", "Bluetooth", "bluetooth")
+        self.add_row(netbox, "bt_ctrl", "BT Controller")
+
+        # Network launchers (small buttons where network info was on main page)
+        net_launch_box = self.make_frame(status_col_right, "Network Launchers", "network")
+        net_flow = Gtk.FlowBox()
+        net_flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        net_flow.set_max_children_per_line(4)
+        net_launch_box.pack_start(net_flow, False, False, 0)
+
+        # Add small network-related launcher buttons
+        network_launchers = [
+            ("Wi-Fi", "wifi", ["nm-connection-editor", "nmtui"]),
+            ("Kismet", "wifi", ["kismet"]),
+            ("Wireshark", "network", ["wireshark"]),
+            ("GPS Nav", "satellite", ["navit", "pure-maps", "organicmaps"]),
+        ]
+
+        for name, icon, commands in network_launchers:
+            btn = Gtk.Button(label=name)
+            btn.set_always_show_image(True)
+            if icon:
+                try:
+                    # Try to add image to button
+                    img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU)
+                    btn.set_image(img)
+                    btn.set_image_position(Gtk.PositionType.TOP)
+                except Exception:
+                    pass
+            available = launch_target_available(commands) if commands else True
+            cmd = resolve_first_command(commands) if commands else "true"
+            self.launch_actions[name] = cmd or ("true" if not commands else None)
+            btn.set_sensitive(available)
+            btn.set_tooltip_text(
+                f"Launch {name}" if available else f"Missing: {candidate_label(commands)}"
+            )
+            btn.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
+            net_flow.add(btn)
 
         # GPS tab (own page, full width)
         gps_cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -3019,7 +3077,7 @@ class App(Gtk.Window):
             self.status.set_text(f"Mission recorder stopped on write error: {str(e)[:100]}")
 
     def sidekick_api_pid(self):
-        rc, out = run_rc("pgrep -f 'status_api.py'", 3)
+        rc, out = run_rc(r"pgrep -f '[p]ython3.*status_api.py'", 3)
         if rc == 0 and out.strip():
             return out.strip().splitlines()[0]
         return None
@@ -3028,10 +3086,16 @@ class App(Gtk.Window):
         pid = self.sidekick_api_pid()
         return f"Sidekick API server: RUNNING (pid {pid})" if pid else "Sidekick API server: STOPPED"
 
+    def sidekick_api_main_status_text(self):
+        return "Sidekick API: RUNNING" if self.sidekick_api_pid() else "Sidekick API: STOPPED"
+
     def refresh_sidekick_api_status_label(self):
-        label = getattr(self, "_sidekick_api_status_label", None)
-        if label is not None:
-            label.set_text(self.sidekick_api_status_text())
+        settings_label = getattr(self, "_sidekick_api_status_label", None)
+        if settings_label is not None:
+            settings_label.set_text(self.sidekick_api_status_text())
+        main_label = getattr(self, "sidekick_api_main_label", None)
+        if main_label is not None:
+            main_label.set_text(self.sidekick_api_main_status_text())
 
     def on_start_sidekick_api_clicked(self, _button):
         if self.sidekick_api_pid():
@@ -3064,9 +3128,33 @@ class App(Gtk.Window):
             self.status.set_text("Sidekick API server is not running")
             self.refresh_sidekick_api_status_label()
             return
-        run_rc(f"kill {pid}", 3)
-        self.status.set_text("Sidekick API server: stopping…")
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+            logging.info("Sidekick API stop requested for pid %s", pid)
+            self.status.set_text(f"Sidekick API server: stopping (pid {pid})…")
+        except (OSError, ValueError) as exc:
+            logging.exception("Sidekick API stop failed for pid %s", pid)
+            self.status.set_text(f"Sidekick API server stop failed: {exc}")
         GLib.timeout_add_seconds(1, self._sidekick_api_status_tick)
+
+    def on_restart_sidekick_api_clicked(self, _button):
+        pid = self.sidekick_api_pid()
+        if pid:
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+                logging.info("Sidekick API restart requested for pid %s", pid)
+            except (OSError, ValueError) as exc:
+                logging.exception("Sidekick API restart stop failed for pid %s", pid)
+                self.status.set_text(f"Sidekick API restart failed: {exc}")
+                return
+        self.status.set_text("Sidekick API server: restarting…")
+        GLib.timeout_add(500, self._start_sidekick_api_after_stop)
+
+    def _start_sidekick_api_after_stop(self):
+        if self.sidekick_api_pid():
+            return True
+        self.on_start_sidekick_api_clicked(None)
+        return False
 
     def _sidekick_api_status_tick(self):
         self.refresh_sidekick_api_status_label()
