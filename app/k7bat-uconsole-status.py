@@ -1804,43 +1804,12 @@ class App(Gtk.Window):
         self.add_row(netbox, "bt", "Bluetooth", "bluetooth")
         self.add_row(netbox, "bt_ctrl", "BT Controller")
 
-        # Network launchers (small buttons where network info was on main page)
-        net_launch_box = self.make_frame(status_col_right, "Network Launchers", "network")
-        net_flow = Gtk.FlowBox()
-        net_flow.set_selection_mode(Gtk.SelectionMode.NONE)
-        net_flow.set_max_children_per_line(4)
-        net_launch_box.pack_start(net_flow, False, False, 0)
-
-        # Add small network-related launcher buttons
-        network_launchers = [
-            ("Wi-Fi", "wifi", ["nm-connection-editor", "nmtui"]),
-            ("Kismet", "wifi", ["kismet"]),
-            ("Wireshark", "network", ["wireshark"]),
-            ("GPS Nav", "satellite", ["navit", "pure-maps", "organicmaps"]),
-        ]
-
-        for name, icon, commands in network_launchers:
-            btn = Gtk.Button(label=name)
-            btn.set_always_show_image(True)
-            if icon:
-                try:
-                    # Try to add image to button
-                    img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU)
-                    btn.set_image(img)
-                    btn.set_image_position(Gtk.PositionType.TOP)
-                except Exception:
-                    pass
-            available = launch_target_available(commands) if commands else True
-            cmd = resolve_first_command(commands) if commands else "true"
-            self.launch_actions[name] = cmd or ("true" if not commands else None)
-            btn.set_sensitive(available)
-            btn.set_tooltip_text(
-                f"Launch {name}" if available else f"Missing: {candidate_label(commands)}"
-            )
-            btn.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
-            net_flow.add(btn)
-
-        # GPS tab (own page, full width)
+        # Launchers section (moved from Launchers tab to main status page)
+        launchbox = self.make_frame(status_page, "Launchers")
+        launch_row = Gtk.FlowBox()
+        launch_row.set_selection_mode(Gtk.SelectionMode.NONE)
+        launch_row.set_max_children_per_line(3)
+        launchbox.pack_start(launch_row, False, False, 0)
         gps_cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         gps_page.pack_start(gps_cols, False, False, 0)
         gps_col_left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1861,39 +1830,7 @@ class App(Gtk.Window):
         self.add_row(gpsqbox, "dop_summary", "DOP")
         self.add_row(gpsqbox, "gps_trend", "Trend")
 
-        # Launchers section
-        launchbox = self.make_frame(launchers_page, "Launchers")
-        launch_row = Gtk.FlowBox()
-        launch_row.set_selection_mode(Gtk.SelectionMode.NONE)
-        launch_row.set_max_children_per_line(3)
-        launchbox.pack_start(launch_row, False, False, 0)
-
-        gps_nav_btn = Gtk.Button(label="GPS Nav")
-        self.decorate_button(gps_nav_btn, "satellite", "GPS Nav")
-        gps_nav_btn.connect("clicked", lambda _b: self.on_launch_clicked("GPS Nav"))
-        self.builtin_buttons["GPS Nav"] = gps_nav_btn
-        self.launch_buttons["GPS Nav"] = gps_nav_btn
-        launch_row.add(gps_nav_btn)
-        self.refresh_gps_nav_button()
-
-        for entry in BUILTIN_LAUNCHERS:
-            name = entry["name"]
-            btn = Gtk.Button(label=name)
-            self.decorate_button(btn, entry.get("icon"), name)
-            candidates = entry["commands"]
-            available = launch_target_available(candidates) if candidates else True
-            cmd = resolve_first_command(candidates) if candidates else "true"
-            self.launch_actions[name] = cmd or ("true" if not candidates else None)
-            btn.set_sensitive(available)
-            btn.set_tooltip_text(
-                f"Launch {name}" if available else f"Missing dependency: {candidate_label(candidates)}"
-            )
-            btn.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
-            self.builtin_buttons[name] = btn
-            self.launch_buttons[name] = btn
-            launch_row.add(btn)
-
-        # Plugins section
+                # Plugins section (on its own tab, launchers moved to main page)
         pluginbox = self.make_frame(plugins_page, "Plugins")
         self.header_plugin_info = Gtk.Label(label="Plugins: loading…")
         self.header_plugin_info.set_xalign(0)
