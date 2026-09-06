@@ -44,49 +44,37 @@ This document consolidates all active ideas, todos, and project directions for:
 
 ### 🚧 NOT STARTED / PENDING
 
-#### High Priority
-1. **WiFiPineapple Integration - Wifite2 Automated Attacks**
-   - Scope: GUI controls for target selection, wordlists, progress monitoring
-   - Hardware: ✅ Already supported (MT7921AUN)
+#### High Priority (Current Focus)
+1. **Secure Remote Assist - Upload Token Flow**
+   - Already have bundle generation; just need upload integration
+   
+2. **BLE Spam Detection & Foxhunt**
+   - Defensive security feature
+   - Conference environment protection
+   - Repository: https://github.com/ChiefGyk3D/Skid-Finder (⭐ 7 stars)
+   
+3. **APRS Beacon + Position Logging**
+   - Field operations enhancement
 
-2. **WiFiPineapple Integration - Bettercap MITM Caplets**
-   - Scope: HTTPAuth, DNS Spoof, SSLStrip caplets with configurable targets
+#### Lower Priority / Future
+4. **WiFi Pineapple Unified Interface** ⬅️ *Lower priority*
+   - Current state: Separate WiFi attack windows exist (Passive Survey, Active Attacks, Network Attacks, Monitor Mode, Firmware Analysis)
+   - Goal: Unified Pineapple-style interface with tool categories and quick-action buttons
+   
+5. **Hak5 Pineapple Modules UI Integration**
+   - Scope: Add "Hak5 Pineapple Modules" button to plugin row that opens module management dialog
+   - Current: Loader and UI classes created in `app/plugins/`, integrated into main App class
 
-3. **WiFiPineapple Integration - Rogue AP / Evil Portal**
-   - Scope: Create rogue access points using hostapd/dnsmasq
-   - Hardware: ✅ MT7921 supports monitor mode + AP mode
-
-4. **WiFiPineapple Integration - EAPHammer WPA2-Enterprise**
-   - Scope: Target corporate networks with credential stealing
-   - Hardware: ✅ MT7921 driver supports 802.11ac + AP mode
-
-5. **WiFiPineapple Integration - Responder/NTLM Hash Capture**
-   - Scope: Monitor and display captured NTLMv2 hashes
-
-#### Medium Priority
-6. **APRS Beacon + Position Logging**
-   - Purpose: Field operations position sharing
-   - Status: Not started
-
-7. **Offline Map Panel**
+6. **Offline Map Panel**
    - Purpose: Navigation without internet connectivity
    - Status: Not started (larger scope project)
 
-8. **Tactical Wi-Fi Defensive Audit**
+7. **Tactical Wi-Fi Defensive Audit**
    - Scope: Rogue AP indicators, auth/reconnect anomaly checks, WPA/PMF visibility
    - Note: Safe RF/security checks without packet injection
 
 #### Future / Research
-9. **BLE Spam Detection & Foxhunt Integration**
-   - Repository: https://github.com/ChiefGyk3D/Skid-Finder (⭐ 7 stars)
-   - Features to add:
-     - BLE spam detection (signature-based scanning)
-     - Raw btmon capture integration
-     - RSSI-based target tracking (foxhunt)
-     - Dual HCI adapter support
-     - Signature pattern matching for Flipper/Maruder/Fast Pair spam
-
-10. **uConsole Cloud Design Inspiration**
+8. **uConsole Cloud Design Inspiration**
     - Repository: https://github.com/mikevitelli/uconsole-cloud (⭐ 5 stars)
     - Features to reference:
       - Next.js 16 App Router with Server Components
