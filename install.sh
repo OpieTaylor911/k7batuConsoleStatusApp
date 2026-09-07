@@ -90,6 +90,13 @@ fi
 log "Installing application"
 mkdir -p "$PREFIX"
 install -m 0755 "$SCRIPT_DIR/app/k7bat-uconsole-status.py" "$PREFIX/k7bat-uconsole-status.py"
+# Sidekick API server + the shared key helper it and the Setup plugin both import.
+if [ -f "$SCRIPT_DIR/status_api.py" ]; then
+  install -m 0755 "$SCRIPT_DIR/status_api.py" "$PREFIX/status_api.py"
+fi
+if [ -f "$SCRIPT_DIR/sidekick_apikey.py" ]; then
+  install -m 0644 "$SCRIPT_DIR/sidekick_apikey.py" "$PREFIX/sidekick_apikey.py"
+fi
 if [ -f "$SCRIPT_DIR/assets/plugins.default.json" ]; then
   install -m 0644 "$SCRIPT_DIR/assets/plugins.default.json" "$PREFIX/plugins.default.json"
 fi

@@ -63,79 +63,77 @@ Write-Host "==> Remote directory: $RemoteDir"
 
 # Normalize local shell scripts to Unix line endings before upload
 Write-Host "==> Normalizing local shell script line endings"
-Get-ChildItem -Path $projectRoot -Recurse -Include "*.sh", "k7bat-uconsole-status" | ForEach-Object {
-    if (Select-String -Path $_.FullName -Pattern "`r`n" -Quiet) {
-        (Get-Content $_.FullName -Raw) -replace "`r`n", "`n" | Set-Content $_.FullName -NoNewline
-        Write-Host "   Fixed: $($_.Name)"
+$shellItems = Get-ChildItem -Path $projectRoot -Recurse -Include "*.sh", "k7bat-uconsole-status"
+foreach ($item in $shellItems) {
+    if (Select-String -Path $item.FullName -Pattern "`r`n" -Quiet) {
+        (Get-Content $item.FullName -Raw) -replace "`r`n", "`n" | Set-Content $item.FullName -NoNewline
+        Write-Host "   Fixed: $($item.Name)"
     }
 }
 
 # Remove UTF-8 BOM from desktop files before upload
-Get-ChildItem -Path $projectRoot -Recurse -Include "*.desktop" | ForEach-Object {
-    $content = [System.IO.File]::ReadAllBytes($_.FullName)
-    $bom = New-Object byte[] 3 @(0xEF, 0xBB, 0xBF)
-    if ($content.Length -ge 3 -and $content[0] -eq $bom[0] -and $content[1] -eq $bom[1] -and $content[2] -eq $bom[2]) {
+$desktopItems = Get-ChildItem -Path $projectRoot -Recurse -Include "*.desktop"
+foreach ($item in $desktopItems) {
+    $content = [System.IO.File]::ReadAllBytes($item.FullName)
+    if ($content.Length -ge 3 -and $content[0] -eq 0xEF -and $content[1] -eq 0xBB -and $content[2] -eq 0xBF) {
         $newContent = $content[3..($content.Length-1)]
-        [System.IO.File]::WriteAllBytes($_.FullName, $newContent)
-        Write-Host "   Removed BOM from: $($_.Name)"
+        [System.IO.File]::WriteAllBytes($item.FullName, $newContent)
+        Write-Host "   Removed BOM from: $($item.Name)"
     }
 }
 
 if (-not $SkipSync) {
-    if ($UpdateOnly) {
-        Write-Host "==> Updating only changed files (no full reinstall)"
-        
-        # Upload only changed files to existing remote directory
-        Write-Host "==> Uploading project files (incremental)"
-        
-        # Create remote directory if it doesn't exist
-        Invoke-Remote "mkdir -p '$RemoteDir'"
-        
-        $sources = @(
-            "app",
-            "assets",
-            "scripts",
-            "plugins",
-            "install.sh",
-            "uninstall.sh",
-            "README.md",
-            "CHANGELOG.md",
-            "FORUM_POST.md",
-            "LICENSE",
-            "VERSION",
-            "SHA256SUMS"
-        )
-        
-        foreach ($src in $sources) {
-            if (Test-Path $src) {
-                Write-Host "   Uploading: $src"
-                Invoke-Scp -Sources $src -Destination "${HostAlias}:$RemoteDir/"
-            }
+    Write-Host "==> Uploading project files"
+
+    # Create remote directory if it doesn't exist
+    Invoke-Remote "mkdir -p '$RemoteDir'"
+
+    $sources = @(
+        "app",
+        "assets",
+        "scripts",
+        "plugins",
+        "install.sh",
+        "uninstall.sh",
+        "status_api.py",
+        "sidekick_apikey.py",
+        "README.md",
+        "CHANGELOG.md",
+        "FORUM_POST.md",
+        "LICENSE",
+        "VERSION",
+        "SHA256SUMS"
+    )
+
+    foreach ($src in $sources) {
+        if (Test-Path $src) {
+            Write-Host "   Uploading: $src"
+            Invoke-Scp -Sources $src -Destination "${HostAlias}:$RemoteDir/"
         }
-        
-        # Remove any duplicate app files that might exist outside the app directory
-        Write-Host "==> Cleaning up stale app files on remote"
-        $cleanupCmd = @(
-            "cd '$RemoteDir'",
-            "if [ -f 'k7bat-uconsole-status.py' ]; then",
-            "    rm -f 'k7bat-uconsole-status.py'",
-            "    echo 'Removed duplicate: k7bat-uconsole-status.py'",
-            "fi"
-        ) -join "`n"
-        Invoke-Remote $cleanupCmd
-        
-        # Normalize line endings for updated shell scripts
-        Write-Host "==> Normalizing remote shell script line endings"
-        $normalizeCmd = @(
-            "cd '$RemoteDir'",
-            "if command -v dos2unix >/dev/null 2>&1; then",
-            "    dos2unix install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status 2>/dev/null || true",
-            "else",
-            "    find . -type f \( -name 'install.sh' -o -name 'uninstall.sh' -o -name '*.sh' -o -name 'k7bat-uconsole-status' \) -exec sed -i 's/\r$//' {} +",
-            "fi"
-        ) -join "`n"
-        Invoke-Remote $normalizeCmd
     }
+
+    # Remove any duplicate app files that might exist outside the app directory
+    Write-Host "==> Cleaning up stale app files on remote"
+    $cleanupCmd = @(
+        "cd '$RemoteDir'",
+        "if [ -f 'k7bat-uconsole-status.py' ]; then",
+        "    rm -f 'k7bat-uconsole-status.py'",
+        "    echo 'Removed duplicate: k7bat-uconsole-status.py'",
+        "fi"
+    ) -join "`n"
+    Invoke-Remote $cleanupCmd
+
+    # Normalize line endings for updated shell scripts
+    Write-Host "==> Normalizing remote shell script line endings"
+    $normalizeCmd = @(
+        "cd '$RemoteDir'",
+        "if command -v dos2unix >/dev/null 2>&1; then",
+        "    dos2unix install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status 2>/dev/null || true",
+        "else",
+        "    find . -type f \( -name 'install.sh' -o -name 'uninstall.sh' -o -name '*.sh' -o -name 'k7bat-uconsole-status' \) -exec sed -i 's/\r$//' {} +",
+        "fi"
+    ) -join "`n"
+    Invoke-Remote $normalizeCmd
 }
 
 if (-not $UpdateOnly) {

@@ -21,8 +21,12 @@ Usage:
 import sys
 import os
 import json
+import re
+import shutil
+import signal
 import threading
 import subprocess
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -30,11 +34,17 @@ from datetime import datetime
 # Add app directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from sidekick_apikey import load_or_create_api_key
+
 # Import plugins configuration
 try:
     from plugins.plugin_manager import PluginManager
 except ImportError:
     PluginManager = None
+
+# Persistent API key (see ideas/API_Auth.md) used to authenticate
+# /api/sidekick/control requests from provisioned Sidekick devices.
+API_KEY = load_or_create_api_key(os.path.dirname(os.path.abspath(__file__)))
 
 # Status data storage
 _status_data = {
@@ -69,6 +79,7 @@ _status_data = {
         "frequency": None,
         "mode": ""
     },
+    "hardware": {},
     "apps": {
         "running": [],
         "available": []
@@ -78,6 +89,10 @@ _status_data = {
 
 _status_lock = threading.Lock()
 
+# How often the background thread re-collects status. Must stay comfortably
+# under the Sidekick's API_STALE_TIMEOUT_MS (15s).
+STATUS_REFRESH_INTERVAL_S = 5.0
+
 # Event queue for Arduino buttons/touchscreen events
 _events_queue = []
 _events_lock = threading.Lock()
@@ -85,6 +100,14 @@ _events_lock = threading.Lock()
 # Active processes tracking
 _active_processes = {}
 _process_lock = threading.Lock()
+
+# API call tracking - last caller and timestamp
+_api_call_tracking = {
+    "last_caller": "",
+    "last_call_time": "",
+    "total_calls": 0
+}
+_api_track_lock = threading.Lock()
 
 
 def get_system_info():
@@ -139,6 +162,20 @@ def get_system_info():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+def update_api_tracker(client_ip, path):
+    """Track the last API caller and timestamp."""
+    with _api_track_lock:
+        _api_call_tracking["last_caller"] = f"{client_ip}:{path}"
+        _api_call_tracking["last_call_time"] = datetime.now().strftime("%H:%M:%S")
+        _api_call_tracking["total_calls"] += 1
+
+
+def get_api_tracker():
+    """Get current API tracking data."""
+    with _api_track_lock:
+        return dict(_api_call_tracking)
 
 
 def get_wifi_status():
@@ -202,11 +239,25 @@ def get_wifi_status():
 
 def run_stdout(cmd, timeout=3):
     """Run a shell command and return its stripped stdout, or '' on failure."""
+    # start_new_session puts the shell and its children in their own process
+    # group so a timeout can kill the whole group. Without it, killing /bin/sh
+    # leaves grandchildren like `gpspipe` running forever.
+    proc = None
     try:
-        return subprocess.check_output(
-            cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=timeout
-        ).strip()
+        proc = subprocess.Popen(
+            cmd, shell=True, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        out, _ = proc.communicate(timeout=timeout)
+        return (out or "").strip()
     except Exception:
+        if proc is not None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                proc.communicate(timeout=1)
+            except Exception:
+                pass
         return ""
 
 
@@ -351,6 +402,89 @@ def set_radio_frequency(freq_hz):
         return False, str(e)
 
 
+def run_rc(cmd, timeout=10):
+    """Run a shell command, returning (returncode, combined stdout+stderr)."""
+    try:
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        return proc.returncode, ((proc.stdout or "") + (proc.stderr or "")).strip()
+    except Exception as e:
+        return -1, str(e)
+
+
+# Sidekick touch-control targets that map to an AIO V2 power rail via aiov2_ctl.
+# Device names must match the case aiov2_ctl expects (see the GUI app's radio_command()).
+_AIO_RAIL_TARGETS = {"SDR", "LORA", "USB", "GPS"}
+
+# Sidekick touch-control targets that map to a systemd service start/stop/restart.
+# ADSB/READ/TAR are separate dashboard tiles but all reflect the same readsb service.
+_SERVICE_TARGETS = {
+    "GPSD": "gpsd",
+    "BT": "bluetooth",
+    "ADSB": "readsb",
+    "READ": "readsb",
+    "TAR": "readsb",
+    "VNC": "vncserver-x11-serviced",
+}
+
+
+def control_aio_power(target, value):
+    """Toggle an AIO V2 power rail (SDR/LORA/USB/GPS) via aiov2_ctl."""
+    if value not in ("on", "off"):
+        return False, f"invalid power value: {value}"
+    if not shutil.which("aiov2_ctl"):
+        return False, "aiov2_ctl not available on this system"
+    rc, out = run_rc(f"aiov2_ctl {target} {value}", 10)
+    if rc == 0:
+        return True, f"{target} power {value} requested"
+    return False, (out.splitlines()[-1][:150] if out else f"{target} {value} failed")
+
+
+def control_service(service_name, action):
+    """Start/stop/restart a systemd service using the same sudo -n pattern as the GUI app."""
+    if action not in ("start", "stop", "restart"):
+        return False, f"invalid service action: {action}"
+    rc, out = run_rc(f"sudo -n systemctl {action} {service_name}", 12)
+    if rc == 0:
+        return True, f"{service_name} {action} requested"
+    low = out.lower()
+    if "password" in low or "authentication" in low or "sudoers" in low:
+        return False, f"{service_name} {action} blocked: passwordless sudo not configured for systemctl"
+    return False, (out.splitlines()[-1][:150] if out else f"{service_name} {action} failed")
+
+
+def control_sdrpp(action):
+    """Start/stop the SDR++ systemd service (SDR+ tile)."""
+    if action not in ("start", "stop"):
+        return False, f"invalid action: {action}"
+    success, result = toggle_radio(action == "start")
+    if success:
+        return True, "SDR+ start requested" if action == "start" else "SDR+ stop requested"
+    return False, str(result)
+
+
+def handle_sidekick_control(data):
+    """Dispatch a Sidekick touch-control request. Returns (http_status, response_dict)."""
+    target = str(data.get("target", "")).strip().upper()
+    command = str(data.get("command", "")).strip().lower()
+    value = str(data.get("value", "")).strip().lower()
+
+    if not target or not command or not value:
+        return 400, {"ok": False, "error": "target, command, and value are required"}
+
+    if command == "power" and target in _AIO_RAIL_TARGETS:
+        success, message = control_aio_power(target, value)
+    elif target == "SDR+" and command == "service":
+        success, message = control_sdrpp(value)
+    elif command == "service" and target in _SERVICE_TARGETS:
+        success, message = control_service(_SERVICE_TARGETS[target], value)
+    else:
+        return 400, {"ok": False, "error": f"unsupported target/command: {target}/{command}"}
+
+    response = {"ok": success, "target": target, "command": command, "requested": value}
+    response["message" if success else "error"] = message
+    return (200 if success else 500), response
+
+
 def add_event(event_type, data=None):
     """Add an event to the queue (for Arduino button/touchscreen events)."""
     with _events_lock:
@@ -416,11 +550,115 @@ def read_battery_pct():
     return None
 
 
+def command_output(args, timeout=3):
+    """Return command stdout without raising when optional system tools are absent."""
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout.strip()
+    except Exception:
+        return ""
+
+
+def read_text_file(path):
+    try:
+        with open(path) as handle:
+            return handle.read().strip()
+    except Exception:
+        return None
+
+
+def aio_power_states():
+    states: dict[str, bool | None] = {
+        "gps": None,
+        "sdr": None,
+        "lora": None,
+        "usb_ac1200": None,
+    }
+    if not shutil.which("aiov2_ctl"):
+        return states
+    output = run_stdout("aiov2_ctl --status", timeout=3) or run_stdout("aiov2_ctl --power", timeout=3)
+    for key, label in (("gps", "GPS"), ("sdr", "SDR"), ("lora", "LORA"), ("usb_ac1200", "USB")):
+        for line in output.splitlines():
+            if label.lower() not in line.lower():
+                continue
+            low = line.lower()
+            if re.search(r"\b(on|enabled|high)\b", low):
+                states[key] = True
+            elif re.search(r"\b(off|disabled|low)\b", low):
+                states[key] = False
+    return states
+
+
+def network_interfaces():
+    result = {}
+    for name in os.listdir("/sys/class/net"):
+        if name == "lo":
+            continue
+        result[name] = {
+            "operstate": read_text_file(f"/sys/class/net/{name}/operstate"),
+            "mac": read_text_file(f"/sys/class/net/{name}/address"),
+            "rx_bytes": read_text_file(f"/sys/class/net/{name}/statistics/rx_bytes"),
+            "tx_bytes": read_text_file(f"/sys/class/net/{name}/statistics/tx_bytes"),
+        }
+    return result
+
+
+def collect_hardware_status():
+    """Collect detailed hardware state for future Sidekick board layouts."""
+    battery = {}
+    for name in os.listdir("/sys/class/power_supply") if os.path.isdir("/sys/class/power_supply") else []:
+        base = f"/sys/class/power_supply/{name}"
+        if read_text_file(f"{base}/type") == "Battery":
+            battery = {
+                "name": name,
+                "percent": read_text_file(f"{base}/capacity"),
+                "state": read_text_file(f"{base}/status"),
+                "voltage_uv": read_text_file(f"{base}/voltage_now"),
+                "current_ua": read_text_file(f"{base}/current_now"),
+                "power_uw": read_text_file(f"{base}/power_now"),
+                "cycle_count": read_text_file(f"{base}/cycle_count"),
+            }
+            break
+
+    meminfo = {}
+    for line in (read_text_file("/proc/meminfo") or "").splitlines():
+        parts = line.replace(":", "").split()
+        if len(parts) >= 2:
+            meminfo[parts[0]] = int(parts[1]) * 1024
+
+    disk = shutil.disk_usage("/")
+    nvme = {}
+    for path in glob_paths("/sys/class/nvme/nvme*/device/model"):
+        controller = path.split("/")[-3]
+        nvme[controller] = {"model": read_text_file(path)}
+
+    processes = command_output(["ps", "-eo", "comm="]).splitlines()
+    return {
+        "aio": aio_power_states(),
+        "battery": battery,
+        "cpu": {
+            "temperature_c": read_cpu_temp_c(),
+            "loadavg": (read_text_file("/proc/loadavg") or "").split()[:3],
+            "governor": read_text_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"),
+        },
+        "memory": {"total_bytes": meminfo.get("MemTotal"), "available_bytes": meminfo.get("MemAvailable")},
+        "storage": {"root_total_bytes": disk.total, "root_used_bytes": disk.used, "root_free_bytes": disk.free, "nvme": nvme},
+        "network": {"interfaces": network_interfaces(), "default_route": command_output(["ip", "route", "show", "default"])},
+        "services": {name: service_active(name) for name in ("gpsd", "readsb", "bluetooth", "NetworkManager", "ssh", "vncserver-x11-serviced")},
+        "applications": {name: name in processes for name in ("sdrpp", "gqrx", "kismet", "wireshark", "navit")},
+    }
+
+
+def glob_paths(pattern):
+    import glob
+    return glob.glob(pattern)
+
+
 def build_sidekick_line():
     """Build the K=V;K=V;...\\n status line expected by the ESP32 sidekick firmware."""
     with _status_lock:
         wifi_status = _status_data.get("wifi", {}).get("status")
         gps_status = _status_data.get("gps", {}).get("status")
+        hardware = _status_data.get("hardware", {})
 
     net = "G" if wifi_status == "connected" else "R"
     if gps_status in ("2d_fix", "3d_fix"):
@@ -446,18 +684,34 @@ def build_sidekick_line():
         temp = "R"
 
     batt_pct = read_battery_pct()
+    battery_state = str(hardware.get("battery", {}).get("state") or "").lower()
     if batt_pct is None:
-        bat, pwr = "X", "X"
+        bat, pwr, charging = "X", "X", "0"
     else:
         pwr = "G"
         bat = "G" if batt_pct > 30 else ("Y" if batt_pct > 15 else "R")
+        charging = "1" if battery_state == "charging" else "0"
+
+    aio = hardware.get("aio", {})
+    interfaces = hardware.get("network", {}).get("interfaces", {})
+    ethernet_up = any(
+        name.startswith("eth") and data.get("operstate") == "up"
+        for name, data in interfaces.items()
+    )
+    active_link = net == "G" or ethernet_up
 
     fields = {
-        "SDR": "X",
+        "SDR": "G" if aio.get("sdr") is True else ("X" if aio.get("sdr") is False else "Y"),
         "GPS": gps,
         "NET": net,
-        "AIO": "X",
+        "AIO": (
+            "G" if any(value is True for value in aio.values())
+            else "X" if any(value is False for value in aio.values())
+            else "Y"
+        ),
         "BAT": bat,
+        "BATPCT": batt_pct if batt_pct is not None else "",
+        "CHG": charging,
         "SDR+": "X",
         "ADSB": "G" if readsb_ok else "X",
         "GPSD": "G" if gpsd_ok else "X",
@@ -468,36 +722,75 @@ def build_sidekick_line():
         "BT": "G" if bt_ok else "X",
         "TEMP": temp,
         "PWR": pwr,
+        "LORA": "G" if aio.get("lora") is True else ("X" if aio.get("lora") is False else "Y"),
+        "USB": "G" if aio.get("usb_ac1200") is True else ("X" if aio.get("usb_ac1200") is False else "Y"),
+        "ETH": "G" if ethernet_up else "X",
+        "INTERNET": "G" if active_link else "R",
         "SYS": "OK",
     }
     return ";".join(f"{k}={v}" for k, v in fields.items()) + ";"
 
 
-def update_status_data():
-    """Update all status data."""
-    global _status_data
-    
+def _refresh_status_once():
+    """Collect fresh status.
+
+    Every collector below shells out and can take seconds (gpspipe alone is
+    ~2.4s), so they run OUTSIDE _status_lock and only the final assignment
+    takes it. Holding the lock across collection made concurrent pollers queue
+    up faster than they drained.
+    """
+    system = get_system_info()
+    wifi = get_wifi_status()
+    gps = get_gps_status()
+    radio = get_radio_status()
+    hardware = collect_hardware_status()
+
+    with _process_lock:
+        running = list(_active_processes.keys())
+
+    try:
+        plugins = load_plugins_config()
+        available = [
+            {"id": p.get("id"), "label": p.get("label")}
+            for p in plugins if p.get("id") and p.get("label")
+        ]
+    except Exception:
+        available = []
+
     with _status_lock:
-        _status_data["system"] = get_system_info()
-        _status_data["wifi"] = get_wifi_status()
-        _status_data["gps"] = get_gps_status()
-        _status_data["radio"] = get_radio_status()
-        
-        # Update running apps
-        with _process_lock:
-            _status_data["apps"]["running"] = list(_active_processes.keys())
-        
-        # Load available plugins/apps
-        try:
-            plugins = load_plugins_config()
-            _status_data["apps"]["available"] = [
-                {"id": p.get("id"), "label": p.get("label")}
-                for p in plugins if p.get("id") and p.get("label")
-            ]
-        except Exception:
-            _status_data["apps"]["available"] = []
-        
+        _status_data["system"] = system
+        _status_data["wifi"] = wifi
+        _status_data["gps"] = gps
+        _status_data["radio"] = radio
+        _status_data["hardware"] = hardware
+        _status_data["apps"]["running"] = running
+        _status_data["apps"]["available"] = available
         _status_data["timestamp"] = datetime.now().isoformat()
+
+
+def _status_refresh_loop():
+    while True:
+        try:
+            _refresh_status_once()
+        except Exception as e:
+            print(f"Status refresh error: {e}")
+        time.sleep(STATUS_REFRESH_INTERVAL_S)
+
+
+def start_status_refresher():
+    """Collect once synchronously, then keep refreshing in the background."""
+    _refresh_status_once()
+    threading.Thread(target=_status_refresh_loop, daemon=True).start()
+
+
+def update_status_data(force=False):
+    """Serve the cached snapshot; refreshing is the background thread's job.
+
+    Request handlers call this on every request, so it must stay cheap -- the
+    Sidekick firmware times out at 3s.
+    """
+    if force:
+        _refresh_status_once()
 
 
 class StatusAPIHandler(BaseHTTPRequestHandler):
@@ -506,6 +799,10 @@ class StatusAPIHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """Override to suppress default logging."""
         pass
+
+    def _control_authorized(self):
+        """Bearer-token check for /api/sidekick/control against the persistent .apikey."""
+        return self.headers.get("Authorization", "") == f"Bearer {API_KEY}"
     
     def send_json_response(self, data, status_code=200):
         """Send a JSON response."""
@@ -738,6 +1035,16 @@ class StatusAPIHandler(BaseHTTPRequestHandler):
             else:
                 self.send_json_response({"error": result}, 500)
         
+        elif path == '/api/sidekick/control':
+            # Touchscreen-initiated hardware control (AIO power rails, services, SDR+)
+            if not self._control_authorized():
+                self.send_json_response({"ok": False, "error": "unauthorized"}, 401)
+                return
+            
+            status_code, response = handle_sidekick_control(data)
+            update_status_data()
+            self.send_json_response(response, status_code)
+        
         elif path == '/api/events':
             # Get pending events (Arduino button/touchscreen events)
             events = get_events()
@@ -813,8 +1120,8 @@ def main(port=8080, host='0.0.0.0'):
     print("  POST /api/radio/frequency - Set frequency Hz (e.g., {\"frequency\": 433000000})")
     print()
     
-    # Initial status update
-    update_status_data()
+    # Prime the cache, then keep it fresh off the request path
+    start_status_refresher()
     
     # Start server
     server = ThreadedHTTPServer((host, port), StatusAPIHandler)
@@ -835,3 +1142,4 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     main(args.port, args.host)
+

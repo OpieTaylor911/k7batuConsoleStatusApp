@@ -1,0 +1,1 @@
+Add an API Status to the top bar of the Status App, also on the main screen in services we need to know the last API call and by what device, set it to refresh every 60 seconds. This will tell me if the sidekick is actually connecting and which one since I have 4 of them on at any one time.

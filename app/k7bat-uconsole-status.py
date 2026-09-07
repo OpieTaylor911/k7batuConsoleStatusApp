@@ -1804,13 +1804,39 @@ class App(Gtk.Window):
         self.add_row(netbox, "bt", "Bluetooth", "bluetooth")
         self.add_row(netbox, "bt_ctrl", "BT Controller")
 
-        # Launchers section (moved from Launchers tab to main status page)
-        launchbox = self.make_frame(status_page, "Launchers")
+        # Launchers section (replaces network info on main status page)
+        launchbox = self.make_frame(status_col_right, "Launchers")
         launch_row = Gtk.FlowBox()
         launch_row.set_selection_mode(Gtk.SelectionMode.NONE)
         launch_row.set_max_children_per_line(3)
         launchbox.pack_start(launch_row, False, False, 0)
-        gps_cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+        gps_nav_btn = Gtk.Button(label="GPS Nav")
+        self.decorate_button(gps_nav_btn, "satellite", "GPS Nav")
+        gps_nav_btn.connect("clicked", lambda _b: self.on_launch_clicked("GPS Nav"))
+        self.builtin_buttons["GPS Nav"] = gps_nav_btn
+        self.launch_buttons["GPS Nav"] = gps_nav_btn
+        launch_row.add(gps_nav_btn)
+        self.refresh_gps_nav_button()
+
+        for entry in BUILTIN_LAUNCHERS:
+            name = entry["name"]
+            btn = Gtk.Button(label=name)
+            self.decorate_button(btn, entry.get("icon"), name)
+            candidates = entry["commands"]
+            available = launch_target_available(candidates) if candidates else True
+            cmd = resolve_first_command(candidates) if candidates else "true"
+            self.launch_actions[name] = cmd or ("true" if not candidates else None)
+            btn.set_sensitive(available)
+            btn.set_tooltip_text(
+                f"Launch {name}" if available else f"Missing dependency: {candidate_label(candidates)}"
+            )
+            btn.connect("clicked", lambda _b, n=name: self.on_launch_clicked(n))
+            self.builtin_buttons[name] = btn
+            self.launch_buttons[name] = btn
+            launch_row.add(btn)
+
+        # GPS tab (own page, full width)
         gps_page.pack_start(gps_cols, False, False, 0)
         gps_col_left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         gps_col_right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)

@@ -24,6 +24,7 @@ import json
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -36,6 +37,15 @@ except ImportError:
     serial = None
 
 APP_DIR = Path(__file__).resolve().parent.parent
+
+# Console app root (where status_api.py and .apikey live), one level above app/.
+CONSOLE_APP_DIR = APP_DIR.parent
+sys.path.insert(0, str(CONSOLE_APP_DIR))
+try:
+    from sidekick_apikey import load_or_create_api_key
+except ImportError:
+    # Never fabricate a key here: one the server doesn't know would break auth.
+    load_or_create_api_key = None
 
 CONFIG_DIR = Path.home() / ".config" / "k7bat-sidekick-setup"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
@@ -93,7 +103,7 @@ DEVICE_PROFILES = {
         "esp_web_tools_chip": "ESP32",
         "merge_offset": "0x0",
     },
-    "heltec": {
+    "heltec_e290": {
         "label": "Heltec (ESP32-S3)",
         "server_id": "heltec_E290",
         "chip": "esp32s3",
@@ -153,6 +163,14 @@ class SidekickSetupWindow(Gtk.Window):
         # Offset from a manifest download's own reported part offset;
         # None means "use profile's merge_offset default".
         self._firmware_offset = None
+
+        # Ensure the console app's persistent API key exists before we might
+        # need to hand it to a device during provisioning.
+        self.api_key = (
+            load_or_create_api_key(str(CONSOLE_APP_DIR))
+            if load_or_create_api_key
+            else ""
+        )
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(root)
@@ -697,6 +715,19 @@ class SidekickSetupWindow(Gtk.Window):
                     return
 
                 self.set_status(f"Sidekick connected, IP: {ip}")
+
+                if self.api_key:
+                    ser.write(f"TOKEN={self.api_key}\n".encode())
+                    self.log(">>> TOKEN=***")
+                    token_reply = self._read_line(ser, time.time() + VERSION_QUERY_TIMEOUT_S)
+                    if token_reply:
+                        self.log(f"<<< {token_reply}")
+                else:
+                    self.log(
+                        f"WARNING: no API key available "
+                        f"(sidekick_apikey.py missing from {CONSOLE_APP_DIR}); "
+                        f"skipping TOKEN= - device will show NO TOKEN"
+                    )
 
                 if server_addr:
                     ser.write(f"SERVER={server_addr}\n".encode())
