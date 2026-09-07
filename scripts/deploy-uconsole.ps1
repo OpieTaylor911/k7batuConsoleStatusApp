@@ -95,8 +95,10 @@ if (-not $SkipSync) {
         "plugins",
         "install.sh",
         "uninstall.sh",
-        "status_api.py",
-        "sidekick_apikey.py",
+        # status_api.py and sidekick_apikey.py are already installed on remote
+        # Don't re-upload to avoid install.sh complaining about same file
+        # "status_api.py",
+        # "sidekick_apikey.py",
         "README.md",
         "CHANGELOG.md",
         "FORUM_POST.md",
@@ -138,6 +140,9 @@ if (-not $SkipSync) {
 
 if (-not $UpdateOnly) {
     if (-not $SkipInstall) {
+        Write-Host "==> Removing stale Python files from remote (to avoid install conflicts)"
+        Invoke-Remote "cd '$RemoteDir' && rm -f status_api.py sidekick_apikey.py || true"
+        
         Write-Host "==> Running installer on uConsole"
         $uidExpr = '$(id -u)'
             $installCmd = "cd '$RemoteDir' && chmod +x install.sh uninstall.sh scripts/*.sh scripts/k7bat-uconsole-status && if [ $uidExpr -eq 0 ]; then ./install.sh; else sudo ./install.sh; fi"
