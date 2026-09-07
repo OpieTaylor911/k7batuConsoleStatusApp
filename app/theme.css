@@ -1,6 +1,10 @@
-﻿# Centralized GTK3 Theme for K7BAT Field Console
+﻿/* Centralized GTK3 Theme for K7BAT Field Console */
 
-/* Base colors - embedded console dark theme */
+window {
+  background-color: #0d1117;
+  color: #c9d1d9;
+}
+
 @define-color bg-dark #0d1117;
 @define-color card-bg #161b22;
 @define-color border-color #30363d;
@@ -10,12 +14,6 @@
 @define-color success-color #2ea043;
 @define-color warn-color #d29922;
 @define-color error-color #f85149;
-
-/* Window styling */
-window {
-  background-color: @bg-dark;
-  color: @text-normal;
-}
 
 /* Header bar - compact design */
 headerbar {
@@ -162,27 +160,19 @@ actionbutton:active {
   color: @bg-dark;
 }
 
-/* Status dots */
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 4px;
+/* Radio/switch status colors */
+.status-on {
+  color: @success-color;
+  font-weight: bold;
 }
 
-.status-dot.good {
-  background-color: @success-color;
+.status-off {
+  color: #6e7681;
 }
 
-.status-dot.warn {
-  background-color: @warn-color;
-}
-
-.status-dot.bad {
-  background-color: @error-color;
-}
-
-.status-dot.muted {
-  background-color: #6e7681;
+.status-unknown {
+  color: #6e7681;
+  opacity: 0.7;
 }
 
 /* Navigation stack */
@@ -231,10 +221,44 @@ label {
   color: @text-normal;
 }
 
+label.status-on {
+  color: @success-color;
+  font-weight: bold;
+}
+
+label.status-off {
+  color: #6e7681;
+}
+
+label.status-unknown {
+  color: #6e7681;
+  opacity: 0.7;
+}
+
 label.title {
   color: @text-primary;
   font-weight: bold;
   font-size: 12pt;
+}
+
+/* Switch/Toggle styling */
+switch {
+  min-width: 54px;
+  min-height: 24px;
+  border-radius: 12px;
+  background-color: #6e7681;
+  border: none;
+}
+
+switch:checked {
+  background-color: @success-color;
+}
+
+switch slider {
+  background-color: white;
+  border-radius: 10px;
+  min-width: 20px;
+  min-height: 20px;
 }
 
 /* Network section: smaller font to fit more rows */

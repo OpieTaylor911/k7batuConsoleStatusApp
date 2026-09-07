@@ -89,10 +89,10 @@ fi
 
 log "Installing application"
 mkdir -p "$PREFIX"
-install -m 0755 "$SCRIPT_DIR/app/k7bat-uconsole-status.py" "$PREFIX/k7bat-uconsole-status.py"
+install -m 0755 "$SCRIPT_DIR/app/k7bat-uconsole-status.py" "$PREFIX/k7bat-uconsole-status.py" || true
 # Sidekick API server + the shared key helper it and the Setup plugin both import.
 if [ -f "$SCRIPT_DIR/status_api.py" ]; then
-  install -m 0755 "$SCRIPT_DIR/status_api.py" "$PREFIX/status_api.py"
+  install -m 0755 "$SCRIPT_DIR/status_api.py" "$PREFIX/status_api.py" || true
 fi
 if [ -f "$SCRIPT_DIR/sidekick_apikey.py" ]; then
   install -m 0644 "$SCRIPT_DIR/sidekick_apikey.py" "$PREFIX/sidekick_apikey.py"
@@ -104,11 +104,11 @@ if [ -f "$SCRIPT_DIR/assets/plugins.default.json" ]; then
   install -m 0644 "$SCRIPT_DIR/assets/plugins.default.json" "$PREFIX/plugins.default.json"
 fi
 if [[ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" ]]; then
-  install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" "$PREFIX/k7bat-callsign-logo.png"
+  install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" "$PREFIX/k7bat-callsign-logo.png" || true
 fi
 if [ -d "$SCRIPT_DIR/assets/icons" ]; then
   mkdir -p "$PREFIX/icons"
-  find "$SCRIPT_DIR/assets/icons" -maxdepth 1 -type f -name '*.svg' -exec install -m 0644 {} "$PREFIX/icons/" \;
+  find "$SCRIPT_DIR/assets/icons" -maxdepth 1 -type f -name '*.svg' -exec install -m 0644 {} "$PREFIX/icons/" \; || true
 fi
 
 # Install plugin files
@@ -147,17 +147,17 @@ if [ -d "$SCRIPT_DIR/app/plugins" ]; then
   done
 fi
 
-install -m 0755 "$SCRIPT_DIR/scripts/k7bat-uconsole-status" /usr/local/bin/k7bat-uconsole-status
-install -m 0755 "$SCRIPT_DIR/scripts/find-gps-apps.sh" /usr/local/bin/find-gps-apps
+install -m 0755 "$SCRIPT_DIR/scripts/k7bat-uconsole-status" /usr/local/bin/k7bat-uconsole-status || true
+install -m 0755 "$SCRIPT_DIR/scripts/find-gps-apps.sh" /usr/local/bin/find-gps-apps || true
 ln -sfn /usr/local/bin/k7bat-uconsole-status /usr/local/bin/uconsole-dashboard
 
 install -m 0644 "$SCRIPT_DIR/assets/k7bat-uconsole-status.svg" \
-  /usr/share/icons/hicolor/scalable/apps/k7bat-uconsole-status.svg
+  /usr/share/icons/hicolor/scalable/apps/k7bat-uconsole-status.svg || true
 
 # Remove UTF-8 BOM from desktop file before installing (if present)
 DESKTOP_FILE_TMP=$(mktemp)
 cat "$SCRIPT_DIR/assets/k7bat-uconsole-status.desktop" | sed '1s/^\xef\xbb\xbf//' > "$DESKTOP_FILE_TMP"
-install -m 0644 "$DESKTOP_FILE_TMP" /usr/share/applications/k7bat-uconsole-status.desktop
+install -m 0644 "$DESKTOP_FILE_TMP" /usr/share/applications/k7bat-uconsole-status.desktop || true
 rm -f "$DESKTOP_FILE_TMP"
 chmod 0644 /usr/share/applications/k7bat-uconsole-status.desktop
 

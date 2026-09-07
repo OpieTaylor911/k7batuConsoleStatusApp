@@ -42,7 +42,7 @@ APP_DIR = Path(__file__).resolve().parent.parent
 CONSOLE_APP_DIR = APP_DIR.parent
 sys.path.insert(0, str(CONSOLE_APP_DIR))
 try:
-    from sidekick_apikey import load_or_create_api_key
+    from scripts.utils.sidekick_apikey import load_or_create_api_key
 except ImportError:
     # Never fabricate a key here: one the server doesn't know would break auth.
     load_or_create_api_key = None

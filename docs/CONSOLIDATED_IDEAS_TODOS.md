@@ -221,8 +221,11 @@ webinterface/                   # Flask web server (alternative UI)
 ├── server.py
 └── www/
 
-status_api.py                   # HTTP API for Arduino devices
-sidekick_apikey.py              # API key generation/storage
+status_api.py                   # HTTP API for Arduino devices (in root)
+scripts/utils/
+├── add_stderr.py               # Debugging utility
+├── fix_reaver.py               # Reaver plugin fixer
+└── sidekick_apikey.py          # API key generation/storage (moved from app/)
 ```
 
 ### ESP32 Sidekick Firmware

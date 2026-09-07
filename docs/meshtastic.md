@@ -1,3 +1,16 @@
+CM5 Settings for Hackergadget Device:
+Lora:
+  Module: sx1262
+  DIO2_AS_RF_SWITCH: true
+  DIO3_TCXO_VOLTAGE: true
+  IRQ: 26
+  Busy: 24
+  Reset: 25
+  gpiochip: 15
+  spidev: spidev1.0
+  
+  
+  
 What do I need to install on my uconsole to have a interface for meshtastic in the gui  
 
 Yes. On your Debian Trixie uConsole, there is already a package that fits what you're asking for extremely well: gtk-meshtastic-client.
