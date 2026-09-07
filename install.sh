@@ -97,14 +97,14 @@ fi
 if [ -f "$SCRIPT_DIR/sidekick_apikey.py" ]; then
   install -m 0644 "$SCRIPT_DIR/sidekick_apikey.py" "$PREFIX/sidekick_apikey.py"
 fi
+if [[ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.svg" ]]; then
+  install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.svg" "$PREFIX/k7bat-callsign-logo.svg"
+fi
 if [ -f "$SCRIPT_DIR/assets/plugins.default.json" ]; then
   install -m 0644 "$SCRIPT_DIR/assets/plugins.default.json" "$PREFIX/plugins.default.json"
 fi
-if [ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" ]; then
+if [[ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" ]]; then
   install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.png" "$PREFIX/k7bat-callsign-logo.png"
-fi
-if [ -f "$SCRIPT_DIR/assets/k7bat-callsign-logo.svg" ]; then
-  install -m 0644 "$SCRIPT_DIR/assets/k7bat-callsign-logo.svg" "$PREFIX/k7bat-callsign-logo.svg"
 fi
 if [ -d "$SCRIPT_DIR/assets/icons" ]; then
   mkdir -p "$PREFIX/icons"
@@ -260,7 +260,9 @@ echo "Run manually from a graphical terminal with:"
 echo "  k7bat-uconsole-status"
 echo
 echo "Optional application buttons light up automatically when those tools are installed."
-
+# Update icon cache and desktop database to ensure icons appear correctly
+gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
+update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 # K7BAT GPS / Navigation Suite
 if [[ -x "$SCRIPT_DIR/scripts/install-k7bat-gps-nav-suite.sh" ]]; then
     "$SCRIPT_DIR/scripts/install-k7bat-gps-nav-suite.sh"
