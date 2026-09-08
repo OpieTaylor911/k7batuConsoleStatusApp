@@ -1,0 +1,10 @@
+--- a/app/plugins/sidekick_setup_ui.py
++++ b/app/plugins/sidekick_setup_ui.py
+@@ -167,6 +167,9 @@ class SidekickSetupUI(Gtk.Window):
+ 
+         # need to hand it to a device during provisioning.
++        print(f"DEBUG: load_or_create_api_key = {load_or_create_api_key}")
++        print(f"DEBUG: CONSOLE_APP_DIR = {CONSOLE_APP_DIR}")
+         self.api_key = (
+             load_or_create_api_key(str(CONSOLE_APP_DIR))
+             if load_or_create_api_key

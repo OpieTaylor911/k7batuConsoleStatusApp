@@ -41,10 +41,21 @@ APP_DIR = Path(__file__).resolve().parent.parent
 # Console app root (where status_api.py and .apikey live), one level above app/.
 CONSOLE_APP_DIR = APP_DIR.parent
 sys.path.insert(0, str(CONSOLE_APP_DIR))
+print(f"DEBUG: CONSOLE_APP_DIR = {CONSOLE_APP_DIR}", file=sys.stderr)
+print(f"DEBUG: sys.path[0] = {sys.path[0]}", file=sys.stderr)
+
+# Check if scripts/utils/sidekick_apikey.py exists
+api_key_path = CONSOLE_APP_DIR / "scripts" / "utils" / "sidekick_apikey.py"
+print(f"DEBUG: Checking for sidekick_apikey at: {api_key_path}", file=sys.stderr)
+print(f"DEBUG: File exists: {api_key_path.exists()}", file=sys.stderr)
+
 try:
     from scripts.utils.sidekick_apikey import load_or_create_api_key
-except ImportError:
+except ImportError as e:
     # Never fabricate a key here: one the server doesn't know would break auth.
+    print(f"DEBUG: ImportError loading sidekick_apikey: {e}", file=sys.stderr)
+    import traceback
+    traceback.print_exc(file=sys.stderr)
     load_or_create_api_key = None
 
 CONFIG_DIR = Path.home() / ".config" / "k7bat-sidekick-setup"
@@ -166,6 +177,8 @@ class SidekickSetupWindow(Gtk.Window):
 
         # Ensure the console app's persistent API key exists before we might
         # need to hand it to a device during provisioning.
+        print(f"DEBUG: load_or_create_api_key = {load_or_create_api_key}")
+        print(f"DEBUG: CONSOLE_APP_DIR = {CONSOLE_APP_DIR}")
         self.api_key = (
             load_or_create_api_key(str(CONSOLE_APP_DIR))
             if load_or_create_api_key
